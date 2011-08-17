@@ -137,7 +137,8 @@ AC_CHECK_HEADERS([sys/mount.h],,,
 [[#include <sys/param.h>
 ]])
 AC_CHECK_HEADERS([arpa/inet.h fcntl.h netdb.h netinet/in.h sys/ioctl.h sys/socket.h syslog.h linux/types.h])
-AM_PATH_GLIB_2_0(2.6.0, [HAVE_GLIB=yes], AC_MSG_ERROR([Missing glib]))
+PKG_CHECK_MODULES(GLIB, "glib-2.0")
+PKG_CHECK_MODULES(GTHREAD, "gthread-2.0")
 AC_HEADER_SYS_WAIT
 AC_TYPE_OFF_T
 AC_TYPE_PID_T
