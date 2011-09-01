@@ -888,6 +888,7 @@ GArray* parse_cfile(gchar* f, bool have_global, GError** e) {
 		g_key_file_free(cfile);
 		return NULL;
 	}
+	g_free(startgroup);
 	groups = g_key_file_get_groups(cfile, NULL);
 	for(i=0;groups[i];i++) {
 		memset(&s, '\0', sizeof(SERVER));
@@ -958,6 +959,7 @@ GArray* parse_cfile(gchar* f, bool have_global, GError** e) {
 				g_array_free(retval, TRUE);
 				g_error_free(err);
 				g_key_file_free(cfile);
+				g_strfreev(groups);
 				return NULL;
 			}
 		}
@@ -973,6 +975,7 @@ GArray* parse_cfile(gchar* f, bool have_global, GError** e) {
 				if(strlen(virtstyle)<10) {
 					g_set_error(e, errdomain, CFILE_VALUE_INVALID, "Invalid value %s for parameter virtstyle in group %s: missing length", virtstyle, groups[i]);
 					g_array_free(retval, TRUE);
+					g_strfreev(groups);
 					g_key_file_free(cfile);
 					return NULL;
 				}
@@ -981,6 +984,7 @@ GArray* parse_cfile(gchar* f, bool have_global, GError** e) {
 				g_set_error(e, errdomain, CFILE_VALUE_INVALID, "Invalid value %s for parameter virtstyle in group %s", virtstyle, groups[i]);
 				g_array_free(retval, TRUE);
 				g_key_file_free(cfile);
+				g_strfreev(groups);
 				return NULL;
 			}
 			if(s.port && !do_oldstyle) {
@@ -1006,6 +1010,7 @@ GArray* parse_cfile(gchar* f, bool have_global, GError** e) {
 #ifndef WITH_SDP
 		if(s.flags & F_SDP) {
 			g_set_error(e, errdomain, CFILE_VALUE_UNSUPPORTED, "This nbd-server was built without support for SDP, yet group %s uses it", groups[i]);
+			g_strfreev(groups);
 			g_array_free(retval, TRUE);
 			g_key_file_free(cfile);
 			return NULL;
@@ -1016,6 +1021,7 @@ GArray* parse_cfile(gchar* f, bool have_global, GError** e) {
 		g_set_error(e, errdomain, CFILE_NO_EXPORTS, "The config file does not specify any exports");
 	}
 	g_key_file_free(cfile);
+	g_strfreev(groups);
 	if(cfdir) {
 		GArray* extra = do_cfile_dir(cfdir, e);
 		if(extra) {
@@ -1749,7 +1755,7 @@ int mainloop(CLIENT *client) {
 			old_pool = worker_pool;
 			req->data = old_pool;
 			worker_pool = g_thread_pool_new(serve_thread_func, NULL, max_workers, FALSE, &error);
-			g_thread_create(flush_and_destroy, &req, FALSE, NULL);
+			g_thread_create(flush_and_destroy, req, FALSE, NULL);
 			break;
 
 		case NBD_CMD_READ:
