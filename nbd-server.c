@@ -1587,6 +1587,27 @@ CLIENT* negotiate(int net, CLIENT *client, GArray* servers, int phase) {
 /** error macro. */
 #define ERROR(client,reply,errcode) { reply.error = htonl(errcode); SEND(client->net,reply); reply.error = 0; }
 
+gpointer flush_and_destroy(gpointer data) {
+	REQUEST_ENTRY* ent = (REQUEST_ENTRY*)data;
+	CLIENT* client = ent->client;
+	GThreadPool* flush_pool = ent->data;
+	struct nbd_reply rep;
+
+	rep.magic = htonl(NBD_REPLY_MAGIC);
+	rep.error = 0;
+	g_thread_pool_free(flush_pool, FALSE, TRUE);
+	DEBUG("fl: ");
+	if (expflush(client)) {
+		DEBUG("Flush failed: %m");
+		ERROR(client, rep, errno);
+		return NULL;
+	}
+	memcpy(rep.handle, ent->req->handle, sizeof(rep.handle));
+	write(client->net, &rep, sizeof(struct nbd_reply));
+	DEBUG("OK!\n");
+	return NULL;
+}
+
 /**
  * Serve a single request. Called from a GThreadPool.
  **/
@@ -1635,32 +1656,11 @@ static void serve_thread_func(gpointer data, gpointer user_data G_GNUC_UNUSED) {
 			g_free(iov[1].iov_base);
 			break;
 		case NBD_CMD_FLUSH:
-			DEBUG("EEK! Flush mistreated!\n");
+			flush_and_destroy(req);
 			break;
 	}
 	g_free(request);
 	g_free(req);
-}
-
-gpointer flush_and_destroy(gpointer data) {
-	REQUEST_ENTRY* ent = (REQUEST_ENTRY*)data;
-	CLIENT* client = ent->client;
-	GThreadPool* flush_pool = ent->data;
-	struct nbd_reply rep;
-
-	rep.magic = htonl(NBD_REPLY_MAGIC);
-	rep.error = 0;
-	g_thread_pool_free(flush_pool, FALSE, TRUE);
-	DEBUG("fl: ");
-	if (expflush(client)) {
-		DEBUG("Flush failed: %m");
-		ERROR(client, rep, errno);
-		return NULL;
-	}
-	memcpy(rep.handle, ent->req->handle, sizeof(rep.handle));
-	write(client->net, &rep, sizeof(struct nbd_reply));
-	DEBUG("OK!\n");
-	return NULL;
 }
 
 /**
@@ -1680,7 +1680,6 @@ int mainloop(CLIENT *client) {
 	int i = 0;
 #endif
 	GThreadPool* worker_pool;
-	GThreadPool* old_pool;
 	GError* error;
 
 	g_thread_init(NULL);
@@ -1752,10 +1751,10 @@ int mainloop(CLIENT *client) {
 			break;
 
 		case NBD_CMD_FLUSH:
-			old_pool = worker_pool;
-			req->data = old_pool;
+			/* There is no race here. */
+			req->data = worker_pool;
 			worker_pool = g_thread_pool_new(serve_thread_func, NULL, max_workers, FALSE, &error);
-			g_thread_create(flush_and_destroy, req, FALSE, NULL);
+			g_thread_pool_push(worker_pool, req, NULL);
 			break;
 
 		case NBD_CMD_READ:
