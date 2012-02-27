@@ -83,6 +83,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
+#if HAVE_FALLOC_PH
+#include <linux/falloc.h>
+#endif
 #include <arpa/inet.h>
 #include <strings.h>
 #include <dirent.h>
@@ -129,9 +132,9 @@ int dontfork = 0;
 #define msg3(a,b,c) syslog(a,b,c)
 #define msg4(a,b,c,d) syslog(a,b,c,d)
 #else
-#define msg2(a,b) g_message(b)
-#define msg3(a,b,c) g_message(b,c)
-#define msg4(a,b,c,d) g_message(b,c,d)
+#define msg2(a,b) g_message((char*)b)
+#define msg3(a,b,c) g_message((char*)b,c)
+#define msg4(a,b,c,d) g_message((char*)b,c,d)
 #endif
 
 /* Debugging macros */
@@ -164,6 +167,7 @@ int dontfork = 0;
 #define F_FUA 256	  /**< Whether server wants FUA to be sent by the client */
 #define F_ROTATIONAL 512  /**< Whether server wants the client to implement the elevator algorithm */
 #define F_TEMPORARY 1024  /**< Whether the backing file is temporary and should be created then unlinked */
+#define F_TRIM 2048       /**< Whether server wants TRIM (discard) to be sent by the client */
 GHashTable *children;
 char pidfname[256]; /**< name of our PID file */
 char pidftemplate[256]; /**< template to be used for the filename of the PID file */
@@ -333,7 +337,7 @@ int authorized_client(CLIENT *opts) {
   
   	inet_aton(opts->clientname, &client);
 	while (fgets(line,LINELEN,f)!=NULL) {
-		if((tmp=index(line, '/'))) {
+		if((tmp=strchr(line, '/'))) {
 			if(strlen(line)<=tmp-line) {
 				msg4(LOG_CRIT, ERRMSG, line, opts->server->authname);
 				return 0;
@@ -775,8 +779,10 @@ GArray* do_cfile_dir(gchar* dir, GError** e) {
 	DIR* dirh = opendir(dir);
 	GQuark errdomain = g_quark_from_string("do_cfile_dir");
 	struct dirent* de;
+	gchar* fname;
 	GArray* retval = NULL;
 	GArray* tmp;
+	struct stat stbuf;
 
 	if(!dir) {
 		g_set_error(e, errdomain, CFILE_DIR_UNKNOWN, "Invalid directory specified: %s", strerror(errno));
@@ -784,26 +790,45 @@ GArray* do_cfile_dir(gchar* dir, GError** e) {
 	}
 	errno=0;
 	while((de = readdir(dirh))) {
+		int saved_errno=errno;
+		fname = g_build_filename(dir, de->d_name, NULL);
 		switch(de->d_type) {
+			case DT_UNKNOWN:
+				/* Filesystem doesn't return type of
+				 * file through readdir. Run stat() on
+				 * the file instead */
+				if(stat(fname, &stbuf)) {
+					perror("stat");
+					goto err_out;
+				}
+				if (!S_ISREG(stbuf.st_mode)) {
+					goto next;
+				}
 			case DT_REG:
 				/* Skip unless the name ends with '.conf' */
 				if(strcmp((de->d_name + strlen(de->d_name) - 5), ".conf")) {
 					continue;
 				}
-				tmp = parse_cfile(de->d_name, FALSE, e);
-				retval = g_array_append_vals(retval, tmp->data, tmp->len);
-				g_array_free(tmp, TRUE);
+				tmp = parse_cfile(fname, FALSE, e);
+				errno=saved_errno;
 				if(*e) {
 					goto err_out;
 				}
+				if(!retval)
+					retval = g_array_new(FALSE, TRUE, sizeof(SERVER));
+				retval = g_array_append_vals(retval, tmp->data, tmp->len);
+				g_array_free(tmp, TRUE);
 			default:
 				break;
 		}
+	next:
+		g_free(fname);
 	}
 	if(errno) {
 		g_set_error(e, errdomain, CFILE_READDIR_ERR, "Error trying to read directory: %s", strerror(errno));
 	err_out:
-		g_array_free(retval, TRUE);
+		if(retval)
+			g_array_free(retval, TRUE);
 		return NULL;
 	}
 	return retval;
@@ -844,6 +869,7 @@ GArray* parse_cfile(gchar* f, bool have_global, GError** e) {
 		{ "fua",	FALSE,  PARAM_BOOL,	&(s.flags),		F_FUA },
 		{ "rotational",	FALSE,  PARAM_BOOL,	&(s.flags),		F_ROTATIONAL },
 		{ "temporary",	FALSE,  PARAM_BOOL,	&(s.flags),		F_TEMPORARY },
+		{ "trim",	FALSE,  PARAM_BOOL,	&(s.flags),		F_TRIM },
 		{ "listenaddr", FALSE,  PARAM_STRING,   &(s.listenaddr),	0 },
 		{ "maxconnections", FALSE, PARAM_INT,	&(s.max_connections),	0 },
 	};
@@ -898,6 +924,9 @@ GArray* parse_cfile(gchar* f, bool have_global, GError** e) {
 		if(i==1 || !have_global) {
 			p=lp;
 			p_size=lp_size;
+			if(!do_oldstyle) {
+				lp[1].required = FALSE;
+			}
 		} 
 		for(j=0;j<p_size;j++) {
 			g_assert(p[j].target != NULL);
@@ -987,25 +1016,21 @@ GArray* parse_cfile(gchar* f, bool have_global, GError** e) {
 				g_strfreev(groups);
 				return NULL;
 			}
-			if(s.port && !do_oldstyle) {
-				g_warning("A port was specified, but oldstyle exports were not requested. This may not do what you expect.");
-				g_warning("Please read 'man 5 nbd-server' and search for oldstyle for more info");
-			}
 		} else {
 			s.virtstyle=VIRT_IPLIT;
+		}
+		if(s.port && !do_oldstyle) {
+			g_warning("A port was specified, but oldstyle exports were not requested. This may not do what you expect.");
+			g_warning("Please read 'man 5 nbd-server' and search for oldstyle for more info");
 		}
 		/* Don't need to free this, it's not our string */
 		virtstyle=NULL;
 		/* Don't append values for the [generic] group */
-		if(i>0) {
+		if(i>0 || !have_global) {
 			s.socket_family = AF_UNSPEC;
 			s.servename = groups[i];
 
 			append_serve(&s, retval);
-		} else {
-			if(!do_oldstyle) {
-				lp[1].required = 0;
-			}
 		}
 #ifndef WITH_SDP
 		if(s.flags & F_SDP) {
@@ -1017,15 +1042,13 @@ GArray* parse_cfile(gchar* f, bool have_global, GError** e) {
 		}
 #endif
 	}
-	if(i==1) {
-		g_set_error(e, errdomain, CFILE_NO_EXPORTS, "The config file does not specify any exports");
-	}
 	g_key_file_free(cfile);
 	g_strfreev(groups);
 	if(cfdir) {
 		GArray* extra = do_cfile_dir(cfdir, e);
 		if(extra) {
 			retval = g_array_append_vals(retval, extra->data, extra->len);
+			i+=extra->len;
 			g_array_free(extra, TRUE);
 		} else {
 			if(*e) {
@@ -1033,6 +1056,9 @@ GArray* parse_cfile(gchar* f, bool have_global, GError** e) {
 				return NULL;
 			}
 		}
+	}
+	if(i==1 && have_global) {
+		g_set_error(e, errdomain, CFILE_NO_EXPORTS, "The config file does not specify any exports");
 	}
 	return retval;
 }
@@ -1464,6 +1490,35 @@ int expflush(CLIENT *client) {
 	return 0;
 }
 
+/*
+ * If the current system supports it, call fallocate() on the backend
+ * file to resparsify stuff that isn't needed anymore (see NBD_CMD_TRIM)
+ */
+int exptrim(struct nbd_request* req, CLIENT* client) {
+#if HAVE_FALLOC_PH
+	FILE_INFO prev = g_array_index(client->export, FILE_INFO, 0);
+	FILE_INFO cur = prev;
+	int i = 1;
+	/* We're running on a system that supports the
+	 * FALLOC_FL_PUNCH_HOLE option to re-sparsify a file */
+	do {
+		if(i<client->export->len) {
+			cur = g_array_index(client->export, FILE_INFO, i);
+		}
+		if(prev.startoff < req->from) {
+			off_t curoff = req->from - prev.startoff;
+			off_t curlen = cur.startoff - prev.startoff - curoff;
+			fallocate(prev.fhandle, FALLOC_FL_PUNCH_HOLE, curoff, curlen);
+		}
+		prev = cur;
+	} while(i < client->export->len && cur.startoff < (req->from + req->len));
+	DEBUG("Performed TRIM request from %llu to %llu", (unsigned long long) req->from, (unsigned long long) req->len);
+#else
+	DEBUG("Ignoring TRIM request (not supported on current platform");
+#endif
+	return 0;
+}
+
 /**
  * Do the initial negotiation.
  *
@@ -1477,7 +1532,7 @@ CLIENT* negotiate(int net, CLIENT *client, GArray* servers, int phase) {
 	uint64_t magic;
 
 	memset(zeros, '\0', sizeof(zeros));
-	g_assert(client != NULL || (phase && NEG_MODERN));
+	g_assert(((phase & NEG_INIT) && (phase & NEG_MODERN)) || client);
 	if(phase & NEG_INIT) {
 		/* common */
 		if (write(net, INIT_PASSWD, 8) < 0) {
@@ -1561,6 +1616,8 @@ CLIENT* negotiate(int net, CLIENT *client, GArray* servers, int phase) {
 		flags |= NBD_FLAG_SEND_FUA;
 	if (client->server->flags & F_ROTATIONAL)
 		flags |= NBD_FLAG_ROTATIONAL;
+	if (client->server->flags & F_TRIM)
+		flags |= NBD_FLAG_SEND_TRIM;
 	if (phase & NEG_OLD) {
 		/* oldstyle */
 		flags = htonl(flags);
@@ -1765,6 +1822,17 @@ int mainloop(CLIENT *client) {
 			*/
 			g_thread_pool_push(worker_pool, req, NULL);
 			break;
+
+		case NBD_CMD_TRIM:
+			/* The kernel module sets discard_zeroes_data == 0,
+			 * so it is okay to do nothing.  */
+			if (exptrim(&request, client)) {
+				DEBUG("Trim failed: %m");
+				ERROR(client, reply, errno);
+				continue;
+			}
+			SEND(client->net, reply);
+			continue;
 
 		default:
 			DEBUG ("Ignoring unknown command\n");
@@ -1972,7 +2040,7 @@ void set_peername(int net, CLIENT *client) {
 	struct sockaddr_storage netaddr;
 	struct sockaddr_in  *netaddr4 = NULL;
 	struct sockaddr_in6 *netaddr6 = NULL;
-	size_t addrinlen = sizeof( addrin );
+	socklen_t addrinlen = sizeof( addrin );
 	struct addrinfo hints;
 	struct addrinfo *ai = NULL;
 	char peername[NI_MAXHOST];
@@ -1982,18 +2050,21 @@ void set_peername(int net, CLIENT *client) {
 	int e;
 	int shift;
 
-	if (getpeername(net, (struct sockaddr *) &addrin, (socklen_t *)&addrinlen) < 0)
-		err("getsockname failed: %m");
+	if (getpeername(net, (struct sockaddr *) &addrin, &addrinlen) < 0)
+		err("getpeername failed: %m");
 
-	getnameinfo((struct sockaddr *)&addrin, (socklen_t)addrinlen,
-		peername, sizeof (peername), NULL, 0, NI_NUMERICHOST);
+	if((e = getnameinfo((struct sockaddr *)&addrin, addrinlen,
+			peername, sizeof (peername), NULL, 0, NI_NUMERICHOST))) {
+		msg3(LOG_INFO, "getnameinfo failed: %s", gai_strerror(e));
+		freeaddrinfo(ai);
+	}
 
 	memset(&hints, '\0', sizeof (hints));
 	hints.ai_flags = AI_ADDRCONFIG;
 	e = getaddrinfo(peername, NULL, &hints, &ai);
 
 	if(e != 0) {
-		fprintf(stderr, "getaddrinfo failed: %s\n", gai_strerror(e));
+		msg3(LOG_INFO, "getaddrinfo failed: %s", gai_strerror(e));
 		freeaddrinfo(ai);
 		return;
 	}
@@ -2018,7 +2089,7 @@ void set_peername(int net, CLIENT *client) {
 				(netaddr4->sin_addr).s_addr>>=32-(client->server->cidrlen);
 				(netaddr4->sin_addr).s_addr<<=32-(client->server->cidrlen);
 
-				getnameinfo((struct sockaddr *) netaddr4, (socklen_t) addrinlen,
+				getnameinfo((struct sockaddr *) netaddr4, addrinlen,
 							netname, sizeof (netname), NULL, 0, NI_NUMERICHOST);
 				tmp=g_strdup_printf("%s/%s", netname, peername);
 			}else if(ai->ai_family == AF_INET6) {
@@ -2034,7 +2105,7 @@ void set_peername(int net, CLIENT *client) {
 				(netaddr6->sin6_addr).s6_addr[i]>>=shift;
 				(netaddr6->sin6_addr).s6_addr[i]<<=shift;
 
-				getnameinfo((struct sockaddr *)netaddr6, (socklen_t)addrinlen,
+				getnameinfo((struct sockaddr *)netaddr6, addrinlen,
 					    netname, sizeof(netname), NULL, 0, NI_NUMERICHOST);
 				tmp=g_strdup_printf("%s/%s", netname, peername);
 			}
