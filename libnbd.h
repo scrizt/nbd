@@ -34,7 +34,7 @@ typedef struct nbds_state_ NBDS_STATE;
 
 typedef void(*state_handler)(NBDS_STATE*, int socket, NBDS_EXPORT* exp);
 
-enum {
+enum builtinstates {
 	NBDS_STATE_OPEN,
 	NBDS_STATE_NEGOTIATING,
 	NBDS_STATE_REJECTED,
@@ -48,14 +48,16 @@ enum {
 	NBDS_STATE_USER = 100,
 };
 
+enum condtypes {
+	NBDS_COND_PREVREADY, /**< condition is satisfied when the previously considered state is ready or skipped */
+	NBDS_COND_PREVNSKIP, /**< condition is satisfied when the previously considered state is ready but not skipped */
+	NBDS_COND_PREVFAIL,  /**< when previously considered state has failed */
+	NBDS_COND_SOCKREADY, /**< when the socket is ready for reading */
+};
+
 typedef struct {
-	enum {
-		NBDS_COND_PREVREADY,
-		NBDS_COND_PREVNSKIP,
-		NBDS_COND_PREVFAIL,
-		NBDS_COND_SOCKREADY,
-	} condtype;
-	/* XXX */
+	enum condtypes condtype;
+	
 } NBDS_COND;
 
 NBDS_STATE* nbds_new_state();
