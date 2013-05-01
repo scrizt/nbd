@@ -230,7 +230,7 @@ EOF
 			../src/nbd-server -C ${conffile} -p ${pidfile} &
 			PID=$!
 			sleep 1
-			./nbd-client -l localhost
+			../src/nbd-client -l localhost
 			./nbd-tester-client -N export1 localhost
 			retval=$?
 		fi

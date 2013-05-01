@@ -1,1 +1,2 @@
-EXTRA_DIST = libnbd.h statemachine.h
+nbdincludedir = $(includedir)/nbd
+nbdinclude_HEADERS = libnbd.h statemachine.h
