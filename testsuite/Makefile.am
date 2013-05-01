@@ -1,5 +1,6 @@
 EXTRA_PROGRAMS = make-integrityhuge
 TESTS_ENVIRONMENT=$(srcdir)/simple_test
+AM_CPPFLAGS = -I$(top_srcdir)/src
 TESTS = cmd cfg1 cfgmulti cfgnew cfgsize write flush integrity dirconfig list #integrityhuge
 check_PROGRAMS = nbd-tester-client
 nbd_tester_client_SOURCES = nbd-tester-client.c cliserv.h netdb-compat.h
