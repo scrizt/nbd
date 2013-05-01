@@ -4,6 +4,7 @@ dnl (c) 2003-2006 Wouter Verhelst <wouter@debian.org>
 AC_INIT([nbd],[3.3],[wouter@debian.org])
 AM_INIT_AUTOMAKE(foreign dist-bzip2)
 AM_MAINTAINER_MODE
+AM_PROG_LIBTOOL
 
 AC_ARG_ENABLE(
   lfs,
@@ -140,6 +141,16 @@ AC_TYPE_PID_T
 nbd_server_CPPFLAGS=$nbd_server_CPPFLAGS" -DSYSCONFDIR='\"$sysconfdir\"'"
 AC_SUBST(nbd_server_CPPFLAGS)
 AC_CONFIG_HEADERS([config.h])
-AC_CONFIG_FILES([Makefile doc/Doxyfile doc/Makefile man/Makefile man/nbd-client.8.sh man/nbd-server.5.sh man/nbd-server.1.sh man/nbd-trdump.1.sh])
+AC_CONFIG_FILES([Makefile
+		 doc/Doxyfile
+		 doc/Makefile
+		 man/Makefile
+		 man/nbd-client.8.sh
+		 man/nbd-server.5.sh
+		 man/nbd-server.1.sh
+		 man/nbd-trdump.1.sh
+		 src/Makefile
+		 src/include/Makefile
+		 src/include/nbd/Makefile])
 AC_OUTPUT
 
