@@ -11,10 +11,25 @@ typedef struct nbd_transition_ nbd_transition;
 typedef void(*enter_state_t)(nbd_state* state, nbd_statemachine_instance* inst);
 
 enum builtin_bits {
-	NBD_BIT_READ_READY = 1,
+	/* per-export options */
+	NBD_BIT_READONLY = 0,
+	NBD_BIT_MULTIFILE,
+	NBD_BIT_COW,
+	NBD_BIT_AUTORO,
+	NBD_BIT_SPARSE,
+	NBD_BIT_SDP,
+	NBD_BIT_SYNC,
+	NBD_BIT_FLUSH,
+	NBD_BIT_FUA,
+	NBD_BIT_ROTATE,
+	NBD_BIT_TRIM,
+	NBD_BIT_FIXED,
+	/* variable builtin states */
+	NBD_BIT_READ_READY,
 	NBD_BIT_WRITE_READY,
-	NBD_BIT_COW_RESOLVE,
-	NBD_BIT_MULTIFILE_RESOLVE,
+	NBD_BIT_COW_RESOLVED,
+	NBD_BIT_MULTIFILE_RESOLVED,
+	/* end of builtin marker */
 	NBD_BIT_USER_START,
 };
 
