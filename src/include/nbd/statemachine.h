@@ -36,7 +36,11 @@ nbd_statemachine_instance* nbd_statemachine_new_instance(nbd_statemachine*);
 
 int nbd_statemachine_add_bit(nbd_statemachine*);
 bool nbd_statemachine_get_bit(nbd_statemachine_instance*, int bit);
-bool nbd_statemachine_set_bit(nbd_statemachine_instance*, int bit);
+void nbd_statemachine_set_bit(nbd_statemachine_instance*, int bit);
+void nbd_statemachine_set_bits(nbd_statemachine_instance*, int bitcount, ...);
+void nbd_statemachine_drop_bit(nbd_statemachine_instance*, int bit);
+void nbd_statemachine_drop_bits(nbd_statemachine_instance*, int bitcount, ...);
+void nbd_statemachine_check_bits(nbd_statemachine_instance*);
 
 nbd_state* nbd_statemachine_add_state();
 bool nbd_statemachine_set_init_state(nbd_statemachine*, nbd_state*);

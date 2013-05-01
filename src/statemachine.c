@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <assert.h>
+#include <stdarg.h>
 
 struct nbd_statemachine_ {
 	int max_bit;
@@ -43,7 +44,35 @@ void nbd_statemacine_set_bit(nbd_statemachine_instance* inst, int bit) {
 
 	int bit_apos = bit / 64;
 	int bit_bpos = bit % 64;
-	g_array_index(inst->priv->bits, uint64_t, bit_apos) |= 1 << bit_bpos;
+	g_array_index(inst->priv->bits, uint64_t, bit_apos) |= (uint64_t)1 << bit_bpos;
+}
+
+void nbd_statemachine_set_bits(nbd_statemachine_instance* inst, int bitcount, ...) {
+	va_list ap;
+	va_start(ap, bitcount);
+	for(int i=0; i<bitcount; i++) {
+		int bit = va_arg(ap, int);
+		nbd_statemachine_set_bit(inst, bit);
+	}
+	va_end(ap);
+}
+
+void nbd_statemachine_drop_bit(nbd_statemachine_instance* inst, int bit) {
+	assert(bit <= inst->machine->max_bit);
+
+	int bit_apos = bit / 64;
+	int bit_bpos = bit % 64;
+	g_array_index(inst->priv->bits, uint64_t, bit_apos) &= ~((uint64_t)1 << bit_bpos);
+}
+
+void nbd_statemachine_drop_bits(nbd_statemachine_instance* inst, int bitcount, ...) {
+	va_list ap;
+	va_start(ap, bitcount);
+	for(int i=0; i<bitcount; i++) {
+		int bit = va_arg(ap, int);
+		nbd_statemachine_drop_bit(inst, bit);
+	}
+	va_end(ap);
 }
 
 void nbd_statemachine_check_bits(nbd_statemachine_instance* inst) {
@@ -58,9 +87,4 @@ void nbd_statemachine_check_bits(nbd_statemachine_instance* inst) {
 			}
 		}
 	}
-}
-
-void nbd_statemachine_set_bit_immediate(nbd_statemachine_instance* inst, int bit) {
-	nbd_statemachine_set_bit(inst, bit);
-	nbd_statemachine_check_bits(inst);
 }
