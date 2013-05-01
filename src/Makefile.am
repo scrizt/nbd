@@ -1,0 +1,12 @@
+SUBDIRS = include
+bin_PROGRAMS = nbd-server nbd-trdump
+sbin_PROGRAMS = @NBD_CLIENT_NAME@
+EXTRA_PROGRAMS = nbd-client
+nbd_client_SOURCES = nbd-client.c cliserv.h
+nbd_server_SOURCES = nbd-server.c cliserv.h lfs.h nbd.h
+nbd_trdump_SOURCES = nbd-trdump.c cliserv.h nbd.h
+nbd_server_CFLAGS = @CFLAGS@ @GLIB_CFLAGS@
+nbd_trdump_CFLAGS = @CFLAGS@ @GLIB_CFLAGS@
+nbd_server_LDADD = @GLIB_LIBS@
+nbd_tester_client_LDADD = @GLIB_LIBS@
+make_integrityhuge_SOURCES = make-integrityhuge.c cliserv.h nbd.h

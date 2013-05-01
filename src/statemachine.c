@@ -34,12 +34,20 @@ nbd_statemachine_state* nbd_statemachine_new_instance(nbd_statemachine* mach) {
 	retval->curstate = mach->init_state;
 }
 
-bool nbd_statemachine_set_bit(nbd_statemachine_instance* inst, int bit) {
+void nbd_statemachine_set_bit_immediate(nbd_statemachine_instance* inst, int bit) {
+	nbd_statemachine_set_bit(inst, bit);
+	nbd_statemachine_check_bits(inst);
+}
+
+void nbd_statemacine_set_bit(nbd_statemachine_instance* inst, int bit) {
 	assert(bit <= inst->machine->max_bit);
 
 	int bit_apos = bit / 64;
 	int bit_bpos = bit % 64;
 	g_array_index(inst->bits, uint64_t, bit_apos) |= 1 << bit_bpos;
+}
+
+void nbd_statemachine_check_bits(nbd_statemachine_instance* inst) {
 	for(int i=0; i<inst->curstate->priv->out->len; i++) {
 		struct nbd_state_transition* t = g_array_index(inst->curstate->priv->out, nbd_state_transition*, i)
 		for(int j=0; j<=inst->machine->max_bit / 64; j++) {

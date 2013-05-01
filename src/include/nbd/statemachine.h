@@ -21,10 +21,11 @@ struct nbd_state_ {
 	enter_state_t enter_state;
 }
 
-struct nbd_statemachine_state_ {
+struct nbd_statemachine_instance_ {
 	struct nbd_sm_instance_priv* priv;
 	nbd_statemachine* machine;
 	nbd_state* curstate;
+	void* data;
 }
 
 nbd_statemachine* nbd_statemachine_new();

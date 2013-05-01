@@ -43,7 +43,7 @@ echo $1
 case $1 in
 	*/cmd)
 		# Test with export specified on command line
-		./nbd-server -C /dev/null -p ${pidfile} 11111 $tmpnam &
+		../src/nbd-server -C /dev/null -p ${pidfile} 11111 $tmpnam &
 		# -p only works if nbd-server wasn't compiled with -DNOFORK or
 		# -DNODAEMON, which I sometimes do for testing and debugging.
 		PID=$!
@@ -53,7 +53,7 @@ case $1 in
 	;;
 	*/cfgsize)
 		# Test oversized requests
-		./nbd-server -C /dev/null -p ${pidfile} 11112 $tmpnam &
+		../src/nbd-server -C /dev/null -p ${pidfile} 11112 $tmpnam &
 		# -p only works if nbd-server wasn't compiled with -DNOFORK or
 		# -DNODAEMON, which I sometimes do for testing and debugging.
 		PID=$!
@@ -70,7 +70,7 @@ case $1 in
 	exportname = $tmpnam
 	port = 11113
 EOF
-		./nbd-server -C ${conffile} -p ${pidfile} &
+		../src/nbd-server -C ${conffile} -p ${pidfile} &
 		PID=$!
 		sleep 1
 		./nbd-tester-client 127.0.0.1 11113
@@ -93,7 +93,7 @@ EOF
 	readonly = true
 	listenaddr = 127.0.0.1
 EOF
-		./nbd-server -C ${conffile} -p ${pidfile} &
+		../src/nbd-server -C ${conffile} -p ${pidfile} &
 		PID=$!
 		sleep 1
 		./nbd-tester-client localhost 11114
@@ -122,7 +122,7 @@ EOF
 [export1]
 	exportname = $tmpnam
 EOF
-		./nbd-server -C ${conffile} -p ${pidfile} &
+		../src/nbd-server -C ${conffile} -p ${pidfile} &
 		PID=$!
 		sleep 1
 		./nbd-tester-client -N export1 localhost
@@ -135,7 +135,7 @@ EOF
 [export1]
 	exportname = $tmpnam
 EOF
-		./nbd-server -C ${conffile} -p ${pidfile} &
+		../src/nbd-server -C ${conffile} -p ${pidfile} &
 		PID=$!
 		sleep 1
 		./nbd-tester-client -N export1 -w localhost
@@ -151,7 +151,7 @@ EOF
 	fua = true
 	rotational = true
 EOF
-		./nbd-server -C ${conffile} -p ${pidfile} &
+		../src/nbd-server -C ${conffile} -p ${pidfile} &
 		PID=$!
 		sleep 1
 		./nbd-tester-client -N export1 -w -f localhost
@@ -168,7 +168,7 @@ EOF
 [export1]
 	exportname = $tmpnam
 EOF
-		./nbd-server -C ${conffile} -p ${pidfile} &
+		../src/nbd-server -C ${conffile} -p ${pidfile} &
 		PID=$!
 		sleep 1
 		./nbd-tester-client -N export1 localhost
@@ -186,7 +186,7 @@ EOF
 	filesize = 52428800
 	temporary = true
 EOF
-		./nbd-server -C ${conffile} -p ${pidfile} &
+		../src/nbd-server -C ${conffile} -p ${pidfile} &
 		PID=$!
 		sleep 1
 		./nbd-tester-client -N export1 -i -t ${mydir}/integrity-test.tr localhost
@@ -204,7 +204,7 @@ EOF
 	filesize = 52428800
 	temporary = true
 EOF
-		./nbd-server -C ${conffile} -p ${pidfile} &
+		../src/nbd-server -C ${conffile} -p ${pidfile} &
 		PID=$!
 		sleep 1
 		./nbd-tester-client -N export1 -i -t ${mydir}/integrityhuge-test.tr localhost
@@ -227,7 +227,7 @@ EOF
 	exportname = $tmpnam
 	readonly = true
 EOF
-			./nbd-server -C ${conffile} -p ${pidfile} &
+			../src/nbd-server -C ${conffile} -p ${pidfile} &
 			PID=$!
 			sleep 1
 			./nbd-client -l localhost
