@@ -1,6 +1,8 @@
 #ifndef NBD_SERVER_DATA_H
 #define NBD_SERVER_DATA_H
 
+#include <glib.h>
+
 /** Per-export flags: */
 #define F_READONLY 1      /**< flag to tell us a file is readonly */
 #define F_MULTIFILE 2	  /**< flag to tell us a file is exported using -m */

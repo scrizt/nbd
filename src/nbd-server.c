@@ -96,6 +96,8 @@
 #include <grp.h>
 #include <dirent.h>
 
+#include <nbd/server-data.h>
+
 #include <glib.h>
 
 /* used in cliserv.h, so must come first */
