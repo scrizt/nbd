@@ -57,7 +57,7 @@ void nbd_statemachine_drop_bit(nbd_statemachine_instance*, int bit);
 void nbd_statemachine_drop_bits(nbd_statemachine_instance*, int bitcount, ...);
 void nbd_statemachine_check_bits(nbd_statemachine_instance*);
 
-nbd_state* nbd_statemachine_add_state();
+nbd_state* nbd_statemachine_add_state(nbd_statemachine*);
 bool nbd_statemachine_set_init_state(nbd_statemachine*, nbd_state*);
 
 nbd_transition* nbd_statemachine_add_transition(nbd_statemachine*, nbd_state* from, nbd_state* to);

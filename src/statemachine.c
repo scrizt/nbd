@@ -81,8 +81,9 @@ void nbd_statemachine_check_bits(nbd_statemachine_instance* inst) {
 		for(int j=0; j<=inst->machine->max_bit / 64; j++) {
 			if( ((g_array_index(inst->priv->bits, uint64_t, j) & g_array_index(t->bits_require, uint64_t, j)) == g_array_index(t->bits_require, uint64_t, j))
 			 && ((g_array_index(inst->priv->bits, uint64_t, j) & g_array_index(t->bits_forbid,  uint64_t, j)) == 0)) {
+			 	nbd_state* state = inst->curstate;
 				inst->curstate = t->to;
-				inst->curstate->enter_state(inst->curstate, inst);
+				inst->curstate->enter_state(state, inst);
 				return;
 			}
 		}
