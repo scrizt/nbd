@@ -1414,6 +1414,210 @@ CLIENT* negotiate(int net, CLIENT *client, GArray* servers, int phase) {
 	return NULL;
 }
 
+void send_reply_header_callback(CLIENT* client, void* commdata, void* userdata) {
+	assert(commdata == NULL);
+	client->server->send_data(client->net, userdata, sizeof(struct nbd_reply));
+	g_free(userdata);
+	client->server->expect_data(expect_header, client, sizeof(struct nbd_request));
+	if(client->transactionlogfd != -1) {
+		writeit(client->transactionlogfd, &reply, sizeof(reply));
+	}
+}
+
+void default_expect_data(nbd_callback cb, CLIENT* client, size_t len, void* userdata) {
+	if(G_GNUC_UNLIKELY(client->iodata == NULL)) {
+		client->iodata = g_new0(struct nbd_iodata, 1);
+	}
+	struct nbd_iodata* dat = (struct nbd_iodata*)client->iodata;
+	struct nbd_data_expect* exp = g_new0(struct nbd_data_expect, 1);
+	exp->len = len;
+	exp->cb = cb;
+	exp->data = userdata;
+	exp->type = NBD_READ_BUF;
+	dat->read = g_slist_append(dat->read, exp);
+}
+
+void nbd_dispatch_read(CLIENT* client, void* commdata G_GNUC_UNUSED, void* userdata G_GNUC_UNUSED) {
+	struct nbd_iodata* dat = (struct nbd_iodata*)client->iodata;
+	GSList* l = (GSList*)dat->read;
+	struct nbd_data_expect* exp;
+	if(dat->inbuflen && l) {
+		exp = (struct nbd_data_expect*)l->data;
+		while(l && exp->len < dat->inbuflen) {
+			exp->cb(client, dat->inbuf, exp->userdata);
+			dat->inbuflen -= exp->len;
+			g_free(exp);
+			dat->read = l = g_slist_delete_link(l, l);
+			if(l) {
+				exp = (struct nbd_data_expect*)l->data;
+			}
+			if(dat->inbuflen == 0) {
+				g_free(dat->inbuf);
+				dat->inbuf = NULL;
+			}
+		}
+	}
+	/*if(l) {
+		exp = (struct nbd_data_expect*)l->data;
+		if(exp->type == NBD_READ_COPY) {
+			
+		}
+	}*/
+}
+
+void handle_write(CLIENT* client, struct nbd_request* request, struct nbd_reply reply) {
+	void* data = g_malloc(sizeof(reply));
+	memcpy(data, &reply, sizeof(reply));
+	client->server->copy_to_file(client, client->net, (off_t)request->from, (size_t)request->len, send_reply_header_callback, data);
+}
+
+void expect_header(CLIENT* client, void* data, void* state) {
+	struct nbd_request *request;
+	struct nbd_reply reply;
+	uint16_t command;
+#ifdef DODBG
+	static int i = 0;
+
+	printf("%d: ", ++i);
+#endif
+	reply.magic = htonl(NBD_REPLY_MAGIC);
+	reply.error = 0;
+
+	request = (struct nbd_request*)data;
+	if (client->transactionlogfd != -1)
+		writeit(client->transactionlogfd, request, sizeof(request));
+
+	request->from = ntohll(request->from);
+	request->type = ntohl(request->type);
+	command = request->type & NBD_CMD_MASK_COMMAND;
+	request->len = ntohl(request->len);
+
+	DEBUG("%s from %llu (%llu) len %u, ", getcommandname(command),
+			(unsigned long long)request->from,
+			(unsigned long long)request->from / 512, len);
+
+	if (request->magic != htonl(NBD_REQUEST_MAGIC))
+		err("Not enough magic.");
+
+	memcpy(reply.handle, request->handle, sizeof(reply.handle));
+
+	if ((command==NBD_CMD_WRITE) || (command==NBD_CMD_READ)) {
+		if (request->from + len < request->from) { // 64 bit overflow!!
+			DEBUG("[Number too large!]");
+			ERROR(client, reply, EINVAL);
+			return;
+		}
+
+		if (((off_t)request->from + len) > client->exportsize) {
+			DEBUG("[RANGE!]");
+			ERROR(client, reply, EINVAL);
+			return;
+		}
+
+		currlen = len;
+		if (currlen > BUFSIZE - sizeof(struct nbd_reply)) {
+			currlen = BUFSIZE - sizeof(struct nbd_reply);
+			if(!logged_oversized) {
+				msg(LOG_DEBUG, "oversized request (this is not a problem)");
+				logged_oversized = true;
+			}
+		}
+	}
+
+	switch (command) {
+
+	case NBD_CMD_DISC:
+		msg(LOG_INFO, "Disconnect request received.");
+        	if (client->server->flags & F_COPYONWRITE) { 
+			if (client->difmap) g_free(client->difmap) ;
+        		close(client->difffile);
+			unlink(client->difffilename);
+			free(client->difffilename);
+		}
+		client->active=false;
+		return;
+
+	case NBD_CMD_WRITE:
+		DEBUG("wr: ");
+		handle_write(client, request, reply);
+		/*while(len > 0) {
+			readit(client->net, buf, currlen);
+			DEBUG("buf->exp, ");
+			if ((client->server->flags & F_READONLY) ||
+			    (client->server->flags & F_AUTOREADONLY)) {
+				DEBUG("[WRITE to READONLY!]");
+				ERROR(client, reply, EPERM);
+				consume(client->net, buf, len-currlen, BUFSIZE);
+				continue;
+			}
+			if (expwrite(request.from, buf, currlen, client,
+				     request.type & NBD_CMD_FLAG_FUA)) {
+				DEBUG("Write failed: %m" );
+				ERROR(client, reply, errno);
+				consume(client->net, buf, len-currlen, BUFSIZE);
+				continue;
+			}
+			len -= currlen;
+			request.from += currlen;
+			currlen = (len < BUFSIZE) ? len : BUFSIZE;
+		}
+		SEND(client->net, reply);*/
+		DEBUG("OK!\n");
+		continue;
+
+	case NBD_CMD_FLUSH:
+		DEBUG("fl: ");
+		if (expflush(client)) {
+			DEBUG("Flush failed: %m");
+			ERROR(client, reply, errno);
+			continue;
+		}
+		SEND(client->net, reply);
+		DEBUG("OK!\n");
+		continue;
+
+	case NBD_CMD_READ:
+		DEBUG("exp->buf, ");
+		if (client->transactionlogfd != -1)
+			writeit(client->transactionlogfd, &reply, sizeof(reply));
+		writeit(client->net, &reply, sizeof(reply));
+		p = buf;
+		writelen = currlen;
+		while(len > 0) {
+			if (expread(request.from, p, currlen, client)) {
+				DEBUG("Read failed: %m");
+				ERROR(client, reply, errno);
+				continue;
+			}
+			
+			DEBUG("buf->net, ");
+			writeit(client->net, buf, writelen);
+			len -= currlen;
+			request.from += currlen;
+			currlen = (len < BUFSIZE) ? len : BUFSIZE;
+			p = buf;
+			writelen = currlen;
+		}
+		DEBUG("OK!\n");
+		continue;
+
+	case NBD_CMD_TRIM:
+		/* The kernel module sets discard_zeroes_data == 0,
+		 * so it is okay to do nothing.  */
+		if (exptrim(&request, client)) {
+			DEBUG("Trim failed: %m");
+			ERROR(client, reply, errno);
+			continue;
+		}
+		SEND(client->net, reply);
+		continue;
+
+	default:
+		DEBUG ("Ignoring unknown command\n");
+		continue;
+	}
+}
+
 /** sending macro. */
 #define SEND(net,reply) { writeit( net, &reply, sizeof( reply )); \
 	if (client->transactionlogfd != -1) \
@@ -1430,158 +1634,37 @@ CLIENT* negotiate(int net, CLIENT *client, GArray* servers, int phase) {
  * @return when the client disconnects
  **/
 int mainloop(CLIENT *client) {
-	struct nbd_request request;
-	struct nbd_reply reply;
-	gboolean go_on=TRUE;
-#ifdef DODBG
-	int i = 0;
-#endif
 	negotiate(client->net, client, NULL, client->modern ? NEG_MODERN : (NEG_OLD | NEG_INIT));
+
 	DEBUG("Entering request loop!\n");
-	reply.magic = htonl(NBD_REPLY_MAGIC);
-	reply.error = 0;
-	while (go_on) {
-		char buf[BUFSIZE];
+
+	client->active = true;
+	while (client->active) {
 		char* p;
-		size_t len;
-		size_t currlen;
 		size_t writelen;
-		uint16_t command;
-#ifdef DODBG
-		i++;
-		printf("%d: ", i);
-#endif
-		readit(client->net, &request, sizeof(request));
-		if (client->transactionlogfd != -1)
-			writeit(client->transactionlogfd, &request, sizeof(request));
+		fd_set wset;
+		fd_set rset;
+		fd_set eset;
+		FD_ZERO(&wset);
+		FD_ZERO(&rset);
+		FD_ZERO(&eset);
 
-		request.from = ntohll(request.from);
-		request.type = ntohl(request.type);
-		command = request.type & NBD_CMD_MASK_COMMAND;
-		len = ntohl(request.len);
-
-		DEBUG("%s from %llu (%llu) len %u, ", getcommandname(command),
-				(unsigned long long)request.from,
-				(unsigned long long)request.from / 512, len);
-
-		if (request.magic != htonl(NBD_REQUEST_MAGIC))
-			err("Not enough magic.");
-
-		memcpy(reply.handle, request.handle, sizeof(reply.handle));
-
-		if ((command==NBD_CMD_WRITE) || (command==NBD_CMD_READ)) {
-			if (request.from + len < request.from) { // 64 bit overflow!!
-				DEBUG("[Number too large!]");
-				ERROR(client, reply, EINVAL);
-				continue;
-			}
-
-			if (((off_t)request.from + len) > client->exportsize) {
-				DEBUG("[RANGE!]");
-				ERROR(client, reply, EINVAL);
-				continue;
-			}
-
-			currlen = len;
-			if (currlen > BUFSIZE - sizeof(struct nbd_reply)) {
-				currlen = BUFSIZE - sizeof(struct nbd_reply);
-				if(!logged_oversized) {
-					msg(LOG_DEBUG, "oversized request (this is not a problem)");
-					logged_oversized = true;
-				}
-			}
+		FD_SET(client->net, &rset);
+		FD_SET(client->net, &eset);
+		if(client->want_write) {
+			FD_SET(client->net, &wset);
 		}
 
-		switch (command) {
-
-		case NBD_CMD_DISC:
-			msg(LOG_INFO, "Disconnect request received.");
-                	if (client->server->flags & F_COPYONWRITE) { 
-				if (client->difmap) g_free(client->difmap) ;
-                		close(client->difffile);
-				unlink(client->difffilename);
-				free(client->difffilename);
-			}
-			go_on=FALSE;
-			continue;
-
-		case NBD_CMD_WRITE:
-			DEBUG("wr: net->buf, ");
-			while(len > 0) {
-				readit(client->net, buf, currlen);
-				DEBUG("buf->exp, ");
-				if ((client->server->flags & F_READONLY) ||
-				    (client->server->flags & F_AUTOREADONLY)) {
-					DEBUG("[WRITE to READONLY!]");
-					ERROR(client, reply, EPERM);
-					consume(client->net, buf, len-currlen, BUFSIZE);
-					continue;
-				}
-				if (expwrite(request.from, buf, currlen, client,
-					     request.type & NBD_CMD_FLAG_FUA)) {
-					DEBUG("Write failed: %m" );
-					ERROR(client, reply, errno);
-					consume(client->net, buf, len-currlen, BUFSIZE);
-					continue;
-				}
-				len -= currlen;
-				request.from += currlen;
-				currlen = (len < BUFSIZE) ? len : BUFSIZE;
-			}
-			SEND(client->net, reply);
-			DEBUG("OK!\n");
-			continue;
-
-		case NBD_CMD_FLUSH:
-			DEBUG("fl: ");
-			if (expflush(client)) {
-				DEBUG("Flush failed: %m");
-				ERROR(client, reply, errno);
-				continue;
-			}
-			SEND(client->net, reply);
-			DEBUG("OK!\n");
-			continue;
-
-		case NBD_CMD_READ:
-			DEBUG("exp->buf, ");
-			if (client->transactionlogfd != -1)
-				writeit(client->transactionlogfd, &reply, sizeof(reply));
-			writeit(client->net, &reply, sizeof(reply));
-			p = buf;
-			writelen = currlen;
-			while(len > 0) {
-				if (expread(request.from, p, currlen, client)) {
-					DEBUG("Read failed: %m");
-					ERROR(client, reply, errno);
-					continue;
-				}
-				
-				DEBUG("buf->net, ");
-				writeit(client->net, buf, writelen);
-				len -= currlen;
-				request.from += currlen;
-				currlen = (len < BUFSIZE) ? len : BUFSIZE;
-				p = buf;
-				writelen = currlen;
-			}
-			DEBUG("OK!\n");
-			continue;
-
-		case NBD_CMD_TRIM:
-			/* The kernel module sets discard_zeroes_data == 0,
-			 * so it is okay to do nothing.  */
-			if (exptrim(&request, client)) {
-				DEBUG("Trim failed: %m");
-				ERROR(client, reply, errno);
-				continue;
-			}
-			SEND(client->net, reply);
-			continue;
-
-		default:
-			DEBUG ("Ignoring unknown command\n");
-			continue;
+		select(client->net+1, &rset, &wset, &eset, NULL);
+		if(FD_ISSET(client->net, &rset)) {
+			client->server->read_ready(client);
+		}
+		if(FD_ISSET(client->net, &wset)) {
+			client->server->write_ready(client);
+		}
+		if(FD_ISSET(client->net, &eset)) {
+			/** @todo: verify what "exceptions" could be beyond "EOF", which we handle */
+			assert(!client->active);
 		}
 	}
 	return 0;

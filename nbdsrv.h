@@ -23,35 +23,50 @@ typedef enum {
 	VIRT_CIDR,	/**< Every subnet in its own directory */
 } VIRT_STYLE;
 
+typedef struct nbd_client CLIENT;
+
+typedef void(*nbd_callback)(CLIENT*, void* commdata, void* userdata);
+typedef void(*nbd_expectfunc)(nbd_callback, CLIENT*, size_t len, void* userdata);
+typedef void(*nbd_raw_iofunc)(int fd, void* buf, size_t len);
+typedef void(*nbd_iofunc)(CLIENT*, int socket, off_t offset, size_t len, nbd_callback finalize, void* userdata);
+
 /**
  * Variables associated with a server.
  **/
 typedef struct {
-	gchar* exportname;    /**< (unprocessed) filename of the file we're exporting */
-	uint64_t expected_size; /**< size of the exported file as it was told to
+	gchar* exportname;     /**< (unprocessed) filename of the file we're exporting */
+	off_t expected_size;   /**< size of the exported file as it was told to
 			       us through configuration */
-	gchar* listenaddr;   /**< The IP address we're listening on */
-	unsigned int port;   /**< port we're exporting this file at */
-	char* authname;      /**< filename of the authorization file */
-	int flags;           /**< flags associated with this exported file */
-	int socket;	     /**< The socket of this server. */
-	int socket_family;   /**< family of the socket */
-	VIRT_STYLE virtstyle;/**< The style of virtualization, if any */
-	uint8_t cidrlen;     /**< The length of the mask when we use
+	gchar* listenaddr;     /**< The IP address we're listening on */
+	unsigned int port;     /**< port we're exporting this file at */
+	char* authname;        /**< filename of the authorization file */
+	int flags;             /**< flags associated with this exported file */
+	int socket;	       /**< The socket of this server. */
+	int socket_family;     /**< family of the socket */
+	VIRT_STYLE virtstyle;  /**< The style of virtualization, if any */
+	uint8_t cidrlen;       /**< The length of the mask when we use
 				  CIDR-style virtualization */
-	gchar* prerun;	     /**< command to be ran after connecting a client,
+	gchar* prerun;	       /**< command to be ran after connecting a client,
 				  but before starting to serve */
-	gchar* postrun;	     /**< command that will be ran after the client
+	gchar* postrun;	       /**< command that will be ran after the client
 				  disconnects */
-	gchar* servename;    /**< name of the export as selected by nbd-client */
-	int max_connections; /**< maximum number of opened connections */
-	gchar* transactionlog;/**< filename for transaction log */
+	gchar* servename;      /**< name of the export as selected by nbd-client */
+	int max_connections;   /**< maximum number of opened connections */
+	gchar* transactionlog; /**< filename for transaction log */
+	nbd_iofunc copy_to_file;   /**< function to copy from a socket to a file */
+	nbd_iofunc copy_to_socket; /**< function to copy from a file to a socket */
+	nbd_raw_iofunc send_data;  /**< function to enqueue data for writing to a
+				    socket (without reading it from disk) */
+	nbd_expectfunc expect_data;/**< function to register a callback for
+				    available data */
+	nbd_callback read_ready;
+	nbd_callback write_ready;
 } SERVER;
 
 /**
   * Variables associated with a client connection
   */
-typedef struct {
+struct nbd_client {
 	uint64_t exportsize;    /**< size of the file we're exporting */
 	char *clientname;    /**< peer, in human-readable format */
 	struct sockaddr_storage clientaddr; /**< peer, in binary format, network byte order */
@@ -70,7 +85,10 @@ typedef struct {
 	gboolean modern;     /**< client was negotiated using modern negotiation protocol */
 	int transactionlogfd;/**< fd for transaction log */
 	int clientfeats;     /**< Features supported by this client */
-} CLIENT;
+	void* iodata;	     /**< pointer for use by the backend. Initialized to NULL. */
+	bool want_write;     /**< true if we want to write to the socket. */
+	bool active;         /**< true if the client connection is still active. */
+};
 
 /* Constants and macros */
 
