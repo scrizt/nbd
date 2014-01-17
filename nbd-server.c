@@ -1414,64 +1414,7 @@ CLIENT* negotiate(int net, CLIENT *client, GArray* servers, int phase) {
 	return NULL;
 }
 
-void send_reply_header_callback(CLIENT* client, void* commdata, void* userdata) {
-	assert(commdata == NULL);
-	client->server->send_data(client->net, userdata, sizeof(struct nbd_reply));
-	g_free(userdata);
-	client->server->expect_data(expect_header, client, sizeof(struct nbd_request));
-	if(client->transactionlogfd != -1) {
-		writeit(client->transactionlogfd, &reply, sizeof(reply));
-	}
-}
-
-void default_expect_data(nbd_callback cb, CLIENT* client, size_t len, void* userdata) {
-	if(G_GNUC_UNLIKELY(client->iodata == NULL)) {
-		client->iodata = g_new0(struct nbd_iodata, 1);
-	}
-	struct nbd_iodata* dat = (struct nbd_iodata*)client->iodata;
-	struct nbd_data_expect* exp = g_new0(struct nbd_data_expect, 1);
-	exp->len = len;
-	exp->cb = cb;
-	exp->data = userdata;
-	exp->type = NBD_READ_BUF;
-	dat->read = g_slist_append(dat->read, exp);
-}
-
-void nbd_dispatch_read(CLIENT* client, void* commdata G_GNUC_UNUSED, void* userdata G_GNUC_UNUSED) {
-	struct nbd_iodata* dat = (struct nbd_iodata*)client->iodata;
-	GSList* l = (GSList*)dat->read;
-	struct nbd_data_expect* exp;
-	if(dat->inbuflen && l) {
-		exp = (struct nbd_data_expect*)l->data;
-		while(l && exp->len < dat->inbuflen) {
-			exp->cb(client, dat->inbuf, exp->userdata);
-			dat->inbuflen -= exp->len;
-			g_free(exp);
-			dat->read = l = g_slist_delete_link(l, l);
-			if(l) {
-				exp = (struct nbd_data_expect*)l->data;
-			}
-			if(dat->inbuflen == 0) {
-				g_free(dat->inbuf);
-				dat->inbuf = NULL;
-			}
-		}
-	}
-	/*if(l) {
-		exp = (struct nbd_data_expect*)l->data;
-		if(exp->type == NBD_READ_COPY) {
-			
-		}
-	}*/
-}
-
-void handle_write(CLIENT* client, struct nbd_request* request, struct nbd_reply reply) {
-	void* data = g_malloc(sizeof(reply));
-	memcpy(data, &reply, sizeof(reply));
-	client->server->copy_to_file(client, client->net, (off_t)request->from, (size_t)request->len, send_reply_header_callback, data);
-}
-
-void expect_header(CLIENT* client, void* data, void* state) {
+void expect_header(NBD_BACKEND* be, void* data, void* state) {
 	struct nbd_request *request;
 	struct nbd_reply reply;
 	uint16_t command;
@@ -1484,8 +1427,8 @@ void expect_header(CLIENT* client, void* data, void* state) {
 	reply.error = 0;
 
 	request = (struct nbd_request*)data;
-	if (client->transactionlogfd != -1)
-		writeit(client->transactionlogfd, request, sizeof(request));
+	if (be->client->transactionlogfd != -1)
+		writeit(be->client->transactionlogfd, request, sizeof(request));
 
 	request->from = ntohll(request->from);
 	request->type = ntohl(request->type);
@@ -1502,15 +1445,15 @@ void expect_header(CLIENT* client, void* data, void* state) {
 	memcpy(reply.handle, request->handle, sizeof(reply.handle));
 
 	if ((command==NBD_CMD_WRITE) || (command==NBD_CMD_READ)) {
-		if (request->from + len < request->from) { // 64 bit overflow!!
+		if (request->from + request->len < request->from) { // 64 bit overflow!!
 			DEBUG("[Number too large!]");
-			ERROR(client, reply, EINVAL);
+			//ERROR(client, reply, EINVAL);
 			return;
 		}
 
-		if (((off_t)request->from + len) > client->exportsize) {
+		if (((off_t)request->from + request->len) > be->client->exportsize) {
 			DEBUG("[RANGE!]");
-			ERROR(client, reply, EINVAL);
+			//ERROR(client, reply, EINVAL);
 			return;
 		}
 
@@ -1618,6 +1561,85 @@ void expect_header(CLIENT* client, void* data, void* state) {
 	}
 }
 
+void send_reply_header_callback(NBD_BACKEND* be, void* commdata, void* userdata) {
+	assert(commdata == NULL);
+	struct nbd_reply* reply = (struct nbd_reply*) userdata;
+
+	be->send_data(be->net, reply, sizeof(struct nbd_reply));
+	be->expect_data(expect_header, be, sizeof(struct nbd_request), userdata);
+	if(be->client->transactionlogfd != -1) {
+		writeit(be->client->transactionlogfd, reply, sizeof(struct nbd_reply));
+	}
+}
+
+struct nbd_data_expect {
+	size_t len;
+	nbd_callback cb;
+	void* data;
+	enum {
+		NBD_READ_BUF,
+		NBD_WRITE_BUF,
+		NBD_COPY_FILE,
+		NBD_COPY_SOCKET,
+	} type;
+};
+
+struct nbd_iodata {
+	GSList* read_queue;
+	GSList* write_queue;
+	size_t inbuflen;
+	void* inbuf;
+};
+
+void default_expect_data(nbd_callback cb, NBD_BACKEND* be, size_t len, void* userdata) {
+	if(G_UNLIKELY(be->data == NULL)) {
+		be->data = g_new0(struct nbd_iodata, 1);
+	}
+	struct nbd_iodata* dat = (struct nbd_iodata*)be->data;
+	struct nbd_data_expect* exp = g_new0(struct nbd_data_expect, 1);
+	exp->len = len;
+	exp->cb = cb;
+	exp->data = userdata;
+	exp->type = NBD_READ_BUF;
+	dat->read_queue = g_slist_append(dat->read_queue, exp);
+}
+
+void nbd_dispatch_read(NBD_BACKEND* be, void* commdata G_GNUC_UNUSED, void* userdata G_GNUC_UNUSED) {
+	struct nbd_iodata* dat = (struct nbd_iodata*)be->data;
+	struct nbd_data_expect* exp;
+	GSList* l = dat->read_queue;
+	if(dat->inbuflen && l) {
+		exp = l->data;
+		while(l && exp->len < dat->inbuflen) {
+			exp->cb(be, dat->inbuf, exp->data);
+			dat->inbuflen -= exp->len;
+			dat->read_queue = l = g_slist_delete_link(l, l);
+			if(l) {
+				exp = (struct nbd_data_expect*)l->data;
+			}
+			if(dat->inbuflen == 0) {
+				g_free(dat->inbuf);
+				dat->inbuf = NULL;
+			} else {
+				dat->inbuf += exp->len;
+			}
+			g_free(exp);
+		}
+	}
+	/*if(l) {
+		exp = (struct nbd_data_expect*)l->data;
+		if(exp->type == NBD_READ_COPY) {
+			
+		}
+	}*/
+}
+
+void handle_write(CLIENT* client, struct nbd_request* request, struct nbd_reply reply) {
+	void* data = g_malloc(sizeof(reply));
+	memcpy(data, &reply, sizeof(reply));
+	client->backend->copy_to_file(client->backend, client->net, (off_t)request->from, (size_t)request->len, send_reply_header_callback, data);
+}
+
 /** sending macro. */
 #define SEND(net,reply) { writeit( net, &reply, sizeof( reply )); \
 	if (client->transactionlogfd != -1) \
@@ -1657,10 +1679,10 @@ int mainloop(CLIENT *client) {
 
 		select(client->net+1, &rset, &wset, &eset, NULL);
 		if(FD_ISSET(client->net, &rset)) {
-			client->server->read_ready(client);
+			client->backend->read_ready(client);
 		}
 		if(FD_ISSET(client->net, &wset)) {
-			client->server->write_ready(client);
+			client->backend->write_ready(client);
 		}
 		if(FD_ISSET(client->net, &eset)) {
 			/** @todo: verify what "exceptions" could be beyond "EOF", which we handle */

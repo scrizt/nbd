@@ -23,12 +23,62 @@ typedef enum {
 	VIRT_CIDR,	/**< Every subnet in its own directory */
 } VIRT_STYLE;
 
+typedef struct nbd_backend NBD_BACKEND;
 typedef struct nbd_client CLIENT;
 
-typedef void(*nbd_callback)(CLIENT*, void* commdata, void* userdata);
-typedef void(*nbd_expectfunc)(nbd_callback, CLIENT*, size_t len, void* userdata);
+typedef void(*nbd_callback)(NBD_BACKEND*, void* commdata, void* userdata);
+typedef void(*nbd_expectfunc)(nbd_callback, NBD_BACKEND*, size_t len, void* userdata);
 typedef void(*nbd_raw_iofunc)(int fd, void* buf, size_t len);
-typedef void(*nbd_iofunc)(CLIENT*, int socket, off_t offset, size_t len, nbd_callback finalize, void* userdata);
+typedef void(*nbd_iofunc)(NBD_BACKEND*, int socket, off_t offset, size_t len, nbd_callback finalize, void* userdata);
+typedef bool(*nbd_initfunc)(NBD_BACKEND*, int socket, CLIENT* client);
+
+typedef struct _backend_template {
+	nbd_initfunc init;	   /**< initializer. */
+	nbd_initfunc deinit;	   /**< deinitializer. */
+} NBD_BACKEND_TEMPLATE;
+
+typedef struct nbd_backend {
+	struct nbd_backend* next;/**< The next in case of a stack of
+				     backends. May be NULL. */
+	int cur_file;		/**< The file that this backend should
+				     read from or write to this one time */
+	int net;		/**< The socket that this backend should
+				     read from or write to this one time */
+	void* data;		/**< Opaque data for this particular
+				     backend. */
+	CLIENT* client;		/**< The client to which this backend belongs */
+	nbd_iofunc copy_to_file;   /**< function to copy from a socket to a
+					file. Backend should attempt to use the
+					most efficient manner possible to do
+					so. */
+	nbd_iofunc copy_to_socket; /**< function to copy from a file to a
+					socket. Backend should attempt to use
+					the most efficient manner possible to
+					do so. */
+	nbd_raw_iofunc send_data;  /**< function to enqueue data for writing to a
+					socket.  May be called by the
+					copy_to_socket function for a buffered
+					backend, but is mainly meant for
+					writing headers and negotiation. */
+	nbd_expectfunc expect_data;/**< function to register a callback for
+					available data. May be called by the
+					copy_to_file function for a buffered
+					backend, but is mainly meant for
+					reading headers and negotiation. */
+	nbd_callback read_ready;   /**< called when the socket can be
+					read from. This callback should
+					assume that the socket is in
+					non-blocking mode, and should
+					read as much data as it can in
+					one go, parse that if possible,
+					and then return. */
+	nbd_callback write_ready;  /**< called when the socket can be
+					written to. This callback should
+					assume that the socket is in
+					non-blocking mode, and should
+					write as much data as it can in
+					one go, and then return. */
+} NBD_BACKEND;
 
 /**
  * Variables associated with a server.
@@ -53,14 +103,6 @@ typedef struct {
 	gchar* servename;      /**< name of the export as selected by nbd-client */
 	int max_connections;   /**< maximum number of opened connections */
 	gchar* transactionlog; /**< filename for transaction log */
-	nbd_iofunc copy_to_file;   /**< function to copy from a socket to a file */
-	nbd_iofunc copy_to_socket; /**< function to copy from a file to a socket */
-	nbd_raw_iofunc send_data;  /**< function to enqueue data for writing to a
-				    socket (without reading it from disk) */
-	nbd_expectfunc expect_data;/**< function to register a callback for
-				    available data */
-	nbd_callback read_ready;
-	nbd_callback write_ready;
 } SERVER;
 
 /**
@@ -85,9 +127,9 @@ struct nbd_client {
 	gboolean modern;     /**< client was negotiated using modern negotiation protocol */
 	int transactionlogfd;/**< fd for transaction log */
 	int clientfeats;     /**< Features supported by this client */
-	void* iodata;	     /**< pointer for use by the backend. Initialized to NULL. */
 	bool want_write;     /**< true if we want to write to the socket. */
 	bool active;         /**< true if the client connection is still active. */
+	NBD_BACKEND* backend;/**< The first backend */
 };
 
 /* Constants and macros */
