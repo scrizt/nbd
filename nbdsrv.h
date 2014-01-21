@@ -81,7 +81,7 @@ typedef struct nbd_backend {
 					one go, and then return. */
 	void(*flush)();		   /**< called when the backend storage should
 					be flushed. */
-} NBD_BACKEND;
+};
 
 /**
  * Variables associated with a server.
