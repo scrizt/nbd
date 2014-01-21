@@ -55,6 +55,7 @@ typedef struct nbd_backend {
 					socket. Backend should attempt to use
 					the most efficient manner possible to
 					do so. */
+	nbd_iofunc trim;	   /**< function to trim data in the backend */
 	nbd_raw_iofunc send_data;  /**< function to enqueue data for writing to a
 					socket.  May be called by the
 					copy_to_socket function for a buffered
@@ -78,6 +79,8 @@ typedef struct nbd_backend {
 					non-blocking mode, and should
 					write as much data as it can in
 					one go, and then return. */
+	void(*flush)();		   /**< called when the backend storage should
+					be flushed. */
 } NBD_BACKEND;
 
 /**

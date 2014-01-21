@@ -129,7 +129,6 @@ int dontfork = 0;
  * integer, so set all bits except for the leftmost one.
  **/
 #define OFFT_MAX ~((off_t)1<<(sizeof(off_t)*8-1))
-#define BUFSIZE ((1024*1024)+sizeof(struct nbd_reply)) /**< Size of buffer that can hold requests */
 #define DIFFPAGESIZE 4096 /**< diff file uses those chunks */
 
 /** Per-export flags: */
@@ -1414,6 +1413,50 @@ CLIENT* negotiate(int net, CLIENT *client, GArray* servers, int phase) {
 	return NULL;
 }
 
+static void expect_header(NBD_BACKEND* be, void* data, void* state);
+
+void send_reply_header_callback(NBD_BACKEND* be, void* commdata, void* userdata) {
+	assert(commdata == NULL);
+	struct nbd_reply* reply = (struct nbd_reply*) userdata;
+
+	be->send_data(be->net, reply, sizeof(struct nbd_reply));
+	be->expect_data(expect_header, be, sizeof(struct nbd_request), userdata);
+	if(be->client->transactionlogfd != -1) {
+		writeit(be->client->transactionlogfd, reply, sizeof(struct nbd_reply));
+	}
+}
+
+void handle_write(CLIENT* client, struct nbd_request* request, struct nbd_reply reply) {
+	void* data = g_malloc(sizeof(reply));
+	memcpy(data, &reply, sizeof(reply));
+	client->backend->copy_to_file(client->backend, client->net, (off_t)request->from, (size_t)request->len, send_reply_header_callback, data);
+}
+
+void handle_flush(CLIENT* client, struct nbd_request* request, struct nbd_reply reply) {
+	void* data = g_malloc(sizeof(reply));
+	memcpy(data, &reply, sizeof(reply));
+	client->backend->flush(send_reply_header_callback, data);
+}
+
+void handle_read(CLIENT* client, struct nbd_request* request, struct nbd_reply reply) {
+	void* data = g_malloc(sizeof(reply));
+	memcpy(data, &reply, sizeof(reply));
+	client->backend->copy_to_socket(client->backend, client->net, (off_t)request->from, (size_t) request->len, send_reply_header_callback, data);
+}
+
+void handle_trim(CLIENT* client, struct nbd_request* request, struct nbd_reply reply) {
+	void* data = g_malloc(sizeof(reply));
+	memcpy(data, &reply, sizeof(reply));
+	client->backend->trim(client->backend, client->net, (off_t)request->from, (size_t) request->len, send_reply_header_callback, data);
+}
+
+/** sending macro. */
+#define SEND(net,reply) { writeit( net, &reply, sizeof( reply )); \
+	if (be->client->transactionlogfd != -1) \
+		writeit(be->client->transactionlogfd, &reply, sizeof(reply)); }
+/** error macro. */
+#define ERROR(client,reply,errcode) { reply.error = htonl(errcode); SEND(client->net,reply); reply.error = 0; }
+
 void expect_header(NBD_BACKEND* be, void* data, void* state) {
 	struct nbd_request *request;
 	struct nbd_reply reply;
@@ -1456,33 +1499,24 @@ void expect_header(NBD_BACKEND* be, void* data, void* state) {
 			//ERROR(client, reply, EINVAL);
 			return;
 		}
-
-		currlen = len;
-		if (currlen > BUFSIZE - sizeof(struct nbd_reply)) {
-			currlen = BUFSIZE - sizeof(struct nbd_reply);
-			if(!logged_oversized) {
-				msg(LOG_DEBUG, "oversized request (this is not a problem)");
-				logged_oversized = true;
-			}
-		}
 	}
 
 	switch (command) {
 
 	case NBD_CMD_DISC:
 		msg(LOG_INFO, "Disconnect request received.");
-        	if (client->server->flags & F_COPYONWRITE) { 
-			if (client->difmap) g_free(client->difmap) ;
-        		close(client->difffile);
-			unlink(client->difffilename);
-			free(client->difffilename);
+        	if (be->client->server->flags & F_COPYONWRITE) { 
+			if (be->client->difmap) g_free(be->client->difmap) ;
+        		close(be->client->difffile);
+			unlink(be->client->difffilename);
+			free(be->client->difffilename);
 		}
-		client->active=false;
+		be->client->active=false;
 		return;
 
 	case NBD_CMD_WRITE:
 		DEBUG("wr: ");
-		handle_write(client, request, reply);
+		handle_write(be->client, request, reply);
 		/*while(len > 0) {
 			readit(client->net, buf, currlen);
 			DEBUG("buf->exp, ");
@@ -1506,31 +1540,33 @@ void expect_header(NBD_BACKEND* be, void* data, void* state) {
 		}
 		SEND(client->net, reply);*/
 		DEBUG("OK!\n");
-		continue;
+		return;
 
 	case NBD_CMD_FLUSH:
 		DEBUG("fl: ");
-		if (expflush(client)) {
+		handle_flush(be->client, request, reply)
+		/*if (expflush(be->client)) {
 			DEBUG("Flush failed: %m");
-			ERROR(client, reply, errno);
-			continue;
+			ERROR(be->client, reply, errno);
+			return;
 		}
-		SEND(client->net, reply);
+		SEND(be->client->net, reply);*/
 		DEBUG("OK!\n");
-		continue;
+		return;
 
 	case NBD_CMD_READ:
-		DEBUG("exp->buf, ");
-		if (client->transactionlogfd != -1)
-			writeit(client->transactionlogfd, &reply, sizeof(reply));
-		writeit(client->net, &reply, sizeof(reply));
+		DEBUG("rd: ");
+		handle_read(be->client, request, reply);
+		/*if (be->client->transactionlogfd != -1)
+			writeit(be->client->transactionlogfd, &reply, sizeof(reply));
+		writeit(be->client->net, &reply, sizeof(reply));
 		p = buf;
 		writelen = currlen;
 		while(len > 0) {
 			if (expread(request.from, p, currlen, client)) {
 				DEBUG("Read failed: %m");
 				ERROR(client, reply, errno);
-				continue;
+				return;
 			}
 			
 			DEBUG("buf->net, ");
@@ -1540,35 +1576,27 @@ void expect_header(NBD_BACKEND* be, void* data, void* state) {
 			currlen = (len < BUFSIZE) ? len : BUFSIZE;
 			p = buf;
 			writelen = currlen;
-		}
+		}*/
 		DEBUG("OK!\n");
-		continue;
+		return;
 
 	case NBD_CMD_TRIM:
 		/* The kernel module sets discard_zeroes_data == 0,
 		 * so it is okay to do nothing.  */
-		if (exptrim(&request, client)) {
+		DEBUG("tr: ");
+		handle_trim(be->client, request, reply);
+		/*if (exptrim(&request, be->client)) {
 			DEBUG("Trim failed: %m");
 			ERROR(client, reply, errno);
 			continue;
 		}
-		SEND(client->net, reply);
-		continue;
+		SEND(client->net, reply);*/
+		DEBUG("OK!\n");
+		return;
 
 	default:
 		DEBUG ("Ignoring unknown command\n");
-		continue;
-	}
-}
-
-void send_reply_header_callback(NBD_BACKEND* be, void* commdata, void* userdata) {
-	assert(commdata == NULL);
-	struct nbd_reply* reply = (struct nbd_reply*) userdata;
-
-	be->send_data(be->net, reply, sizeof(struct nbd_reply));
-	be->expect_data(expect_header, be, sizeof(struct nbd_request), userdata);
-	if(be->client->transactionlogfd != -1) {
-		writeit(be->client->transactionlogfd, reply, sizeof(struct nbd_reply));
+		return;
 	}
 }
 
@@ -1634,18 +1662,6 @@ void nbd_dispatch_read(NBD_BACKEND* be, void* commdata G_GNUC_UNUSED, void* user
 	}*/
 }
 
-void handle_write(CLIENT* client, struct nbd_request* request, struct nbd_reply reply) {
-	void* data = g_malloc(sizeof(reply));
-	memcpy(data, &reply, sizeof(reply));
-	client->backend->copy_to_file(client->backend, client->net, (off_t)request->from, (size_t)request->len, send_reply_header_callback, data);
-}
-
-/** sending macro. */
-#define SEND(net,reply) { writeit( net, &reply, sizeof( reply )); \
-	if (client->transactionlogfd != -1) \
-		writeit(client->transactionlogfd, &reply, sizeof(reply)); }
-/** error macro. */
-#define ERROR(client,reply,errcode) { reply.error = htonl(errcode); SEND(client->net,reply); reply.error = 0; }
 /**
  * Serve a file to a single client.
  *
@@ -1679,10 +1695,10 @@ int mainloop(CLIENT *client) {
 
 		select(client->net+1, &rset, &wset, &eset, NULL);
 		if(FD_ISSET(client->net, &rset)) {
-			client->backend->read_ready(client);
+			client->backend->read_ready(client->backend, NULL, NULL);
 		}
 		if(FD_ISSET(client->net, &wset)) {
-			client->backend->write_ready(client);
+			client->backend->write_ready(client->backend, NULL, NULL);
 		}
 		if(FD_ISSET(client->net, &eset)) {
 			/** @todo: verify what "exceptions" could be beyond "EOF", which we handle */
