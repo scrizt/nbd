@@ -37,7 +37,7 @@ typedef struct _backend_template {
 	nbd_initfunc deinit;	   /**< deinitializer. */
 } NBD_BACKEND_TEMPLATE;
 
-typedef struct nbd_backend {
+struct nbd_backend {
 	struct nbd_backend* next;/**< The next in case of a stack of
 				     backends. May be NULL. */
 	int cur_file;		/**< The file that this backend should
