@@ -1649,6 +1649,11 @@ struct nbd_iodata {
 	void* inbuf;
 };
 
+/**
+  * The default implementation for nbd_backend::expect_data().
+  *
+  * @todo what is this doing here? Should be in nbdsrv.c
+  */
 void default_expect_data(nbd_callback cb, NBD_BACKEND* be, size_t len, void* userdata) {
 	if(G_UNLIKELY(be->data == NULL)) {
 		be->data = g_new0(struct nbd_iodata, 1);

@@ -26,10 +26,49 @@ typedef enum {
 typedef struct nbd_backend NBD_BACKEND;
 typedef struct nbd_client CLIENT;
 
-typedef void(*nbd_callback)(NBD_BACKEND*, void* commdata, void* userdata);
-typedef void(*nbd_expectfunc)(nbd_callback, NBD_BACKEND*, size_t len, void* userdata);
+/**
+  * A callback function
+  *
+  * @param be the backend that triggered this callback
+  * @param cl the client for which we're running this callback
+  * @param commdata data we read from the socket. May be NULL in case this
+  * callback was not called to (help) handle a read request
+  * @param userdata data which was passed along when this callback was registered
+  */
+typedef void(*nbd_callback)(NBD_BACKEND* be, CLIENT* cl, void* commdata, void* userdata);
+/**
+  * Function pointer to register an expectation for data
+  *
+  * @param callback the callback function to call when the expected data has arrived
+  * @param be the backend which expects the data
+  * @param len the expected length
+  * @param userdata data to be passed on to the callback function
+  */
+typedef void(*nbd_expectfunc)(nbd_callback callback, NBD_BACKEND* be, size_t len, void* userdata);
+/**
+  * A function which performs raw I/O to a file, using a buffer
+  *
+  * @param fd the file to read from or write to
+  * @param buf the memory buffer
+  * @param len (expected) size of the data to read or write
+  */
 typedef void(*nbd_raw_iofunc)(int fd, void* buf, size_t len);
-typedef void(*nbd_iofunc)(NBD_BACKEND*, int socket, off_t offset, size_t len, nbd_callback finalize, void* userdata);
+/**
+  * A function to perform "fast" I/O.
+  *
+  * @param be the backend related to this call
+  * @param socket the network socket to read from or write to
+  * @param offset the offset in the backend file where we should start reading or writing
+  * @param len the length of the data to read or write
+  * @param finalize a function to call when the I/O operation has completed
+  * @param userdata data to pass along to the finalize function
+  */
+typedef void(*nbd_iofunc)(NBD_BACKEND* be, int socket, off_t offset, size_t len, nbd_callback finalize, void* userdata);
+/**
+  * A function to initialize a backend
+  *
+  * @todo do we need this? Probably don't.
+  */
 typedef bool(*nbd_initfunc)(NBD_BACKEND*, int socket, CLIENT* client);
 
 typedef struct _backend_template {
