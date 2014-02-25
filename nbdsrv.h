@@ -35,7 +35,7 @@ typedef struct nbd_client CLIENT;
   * callback was not called to (help) handle a read request
   * @param userdata data which was passed along when this callback was registered
   */
-typedef void(*nbd_callback)(NBD_BACKEND* be, CLIENT* cl, void* commdata, void* userdata);
+typedef void(*nbd_callback)(NBD_BACKEND* be, void* commdata, void* userdata);
 /**
   * Function pointer to register an expectation for data
   *
