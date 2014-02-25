@@ -1218,6 +1218,15 @@ int exptrim(struct nbd_request* req, CLIENT* client) {
 	return 0;
 }
 
+/**
+  * Send out a negotiation reply
+  *
+  * @param opt the option we're replying to
+  * @param net the network socket
+  * @param reply_type the reply type
+  * @param datasize the size of the data attached to this reply; 0 for no data
+  * @param data a pointer to the data attached to this reply
+  */
 static void send_reply(uint32_t opt, int net, uint32_t reply_type, size_t datasize, void* data) {
 	uint64_t magic = htonll(0x3e889045565a9LL);
 	reply_type = htonl(reply_type);
@@ -1237,6 +1246,14 @@ static void send_reply(uint32_t opt, int net, uint32_t reply_type, size_t datasi
 	}
 }
 
+/**
+  * Handle the "export name" command during negotiation
+  *
+  * @param opt the option we're handling. Should be 1, or something is wrong
+  * @param net the socket
+  * @param servers the array of SERVER pointers known to us
+  * @param cflags the flags that were sent by the client
+  */
 static CLIENT* handle_export_name(uint32_t opt, int net, GArray* servers, uint32_t cflags) {
 	uint32_t namelen;
 	char* name;
@@ -1273,6 +1290,15 @@ static CLIENT* handle_export_name(uint32_t opt, int net, GArray* servers, uint32
 	return NULL;
 }
 
+/**
+  * Handle the "list exports" command during negotation
+  *
+  * @param opt the option we're handling. Should be NBD_OPT_LIST (3), or
+  * something is wrong.
+  * @param net the network socket to the client
+  * @param servers the array of SERVER pointers known to us
+  * @param cflags the flags which the client sent to us
+  */
 static void handle_list(uint32_t opt, int net, GArray* servers, uint32_t cflags) {
 	uint32_t len;
 	int i;
