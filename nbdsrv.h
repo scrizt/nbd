@@ -46,7 +46,7 @@ typedef void(*nbd_callback)(NBD_BACKEND* be, void* commdata, void* userdata);
   */
 typedef void(*nbd_expectfunc)(nbd_callback callback, NBD_BACKEND* be, size_t len, void* userdata);
 /**
-  * A function which performs raw I/O to a file, using a buffer
+  * A function which performs raw I/O to a file descriptor, using a buffer, no seeking
   *
   * @param fd the file to read from or write to
   * @param buf the memory buffer
