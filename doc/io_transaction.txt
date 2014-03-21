@@ -1,0 +1,46 @@
+Branch 'io_transaction': rewriting nbd-server
+=============================================
+
+The idea of this branch is to rewrite the way nbd-server handles I/O.
+
+Currently, nbd-server's mainloop() function, when it receives a request,
+calls a function, which calls another function, which calls another
+function, and so on until we finally reach read() or write() to update
+the backend file.
+
+This hardcodes the options available to nbd-server, and pretty much
+makes things very inflexible.
+
+The plan is to change that into a statemachine that can be extended by
+dynamically-loaded code, or by library users, or something along those
+lines.
+
+This is a design document on how we'll accomplish that. Some code has
+already been written, and may need to be rewritten yet again, since I
+keep forgetting my plans, which is why I'm writing this document now.
+
+Structures
+----------
+
+Some structures already exist from the master branch:
+
+- CLIENT: data relating to a client connection. Has a pointer to its
+  SERVER structure, and one to a simple struct which contains a void*
+  with private data for backends, and a "next" pointer for the next
+  backend (to be defined).
+- SERVER: data relating to an export.
+- NBD_BACKEND: an OO-inspired struct of function pointers
+
+Backends
+--------
+
+A backend performs one thing. For instance, it could perform
+copy-on-write abstraction, it could filter out write requests for
+read-only exports, or it could handle the multiple file option.
+
+A backend may need to initialize states for its client backends. For
+instance, the "multiple files" backend might need to initialize several
+other backends (all of the same type) so that it can redirect read or
+write requests to the correct backend.
+
+
