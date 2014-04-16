@@ -43,4 +43,21 @@ instance, the "multiple files" backend might need to initialize several
 other backends (all of the same type) so that it can redirect read or
 write requests to the correct backend.
 
+The backend has four functions related to IO:
 
+- copy_to_file: copies data from a socket to a file
+- copy_to_buffer: copies data from a socket to a memory buffer.
+- copy_from_file: copies data from a file to a socket
+- copy_from_buffer: copies data from a memory buffer to a socket.
+
+A simple backend might implement the copy_*_file calls by using a
+private buffer and the copy_*_buffer functions in the relevant order.
+The default backend will probably do so.
+
+The copy_*_file functions receive an offset (into the file) and a
+length (of bytes to read or write). They should return the actual number
+of bytes read or written.
+
+The copy_*_buffer functions receive a length (to read or write) and a
+memory buffer (to read bytes into or from). They should return the
+actual number of bytes read or written.

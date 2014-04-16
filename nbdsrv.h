@@ -51,8 +51,10 @@ typedef void(*nbd_expectfunc)(nbd_callback callback, NBD_BACKEND* be, size_t len
   * @param fd the file to read from or write to
   * @param buf the memory buffer
   * @param len (expected) size of the data to read or write
+  * @return the actual number of bytes read or written. May be less than len or
+  * zero, should be -1 in case of error.
   */
-typedef void(*nbd_raw_iofunc)(int fd, void* buf, size_t len);
+typedef ssize_t(*nbd_buffunc)(int fd, void* buf, size_t len);
 /**
   * A function to perform "fast" I/O.
   *
@@ -62,8 +64,10 @@ typedef void(*nbd_raw_iofunc)(int fd, void* buf, size_t len);
   * @param len the length of the data to read or write
   * @param finalize a function to call when the I/O operation has completed
   * @param userdata data to pass along to the finalize function
+  * @return the actual number of bytes read or written. May be less than len or
+  * zero, should be -1 in case of error.
   */
-typedef void(*nbd_iofunc)(NBD_BACKEND* be, int socket, off_t offset, size_t len, nbd_callback finalize, void* userdata);
+typedef ssize_t(*nbd_iofunc)(NBD_BACKEND* be, int socket, off_t offset, size_t len, nbd_callback finalize, void* userdata);
 /**
   * A function to initialize a backend
   *
@@ -90,34 +94,15 @@ struct nbd_backend {
 					file. Backend should attempt to use the
 					most efficient manner possible to do
 					so. */
-	nbd_iofunc copy_to_socket; /**< function to copy from a file to a
+	nbd_iofunc copy_from_file; /**< function to copy from a file to a
 					socket. Backend should attempt to use
 					the most efficient manner possible to
 					do so. */
+	nbd_buffunc copy_to_buffer; /**< function to copy from a socket to a
+					memory buffer. */
+	nbd_buffunc copy_from_buffer; /**< function to copy from a memory
+					buffer to a socket */
 	nbd_iofunc trim;	   /**< function to trim data in the backend */
-	nbd_raw_iofunc send_data;  /**< function to enqueue data for writing to a
-					socket.  May be called by the
-					copy_to_socket function for a buffered
-					backend, but is mainly meant for
-					writing headers and negotiation. */
-	nbd_expectfunc expect_data;/**< function to register a callback for
-					available data. May be called by the
-					copy_to_file function for a buffered
-					backend, but is mainly meant for
-					reading headers and negotiation. */
-	nbd_callback read_ready;   /**< called when the socket can be
-					read from. This callback should
-					assume that the socket is in
-					non-blocking mode, and should
-					read as much data as it can in
-					one go, parse that if possible,
-					and then return. */
-	nbd_callback write_ready;  /**< called when the socket can be
-					written to. This callback should
-					assume that the socket is in
-					non-blocking mode, and should
-					write as much data as it can in
-					one go, and then return. */
 	void(*flush)();		   /**< called when the backend storage should
 					be flushed. */
 };
