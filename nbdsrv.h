@@ -29,22 +29,10 @@ typedef struct nbd_client CLIENT;
 /**
   * A callback function
   *
-  * @param be the backend that triggered this callback
-  * @param cl the client for which we're running this callback
-  * @param commdata data we read from the socket. May be NULL in case this
-  * callback was not called to (help) handle a read request
+  * @param client the client that triggered this callback
   * @param userdata data which was passed along when this callback was registered
   */
-typedef void(*nbd_callback)(NBD_BACKEND* be, void* commdata, void* userdata);
-/**
-  * Function pointer to register an expectation for data
-  *
-  * @param callback the callback function to call when the expected data has arrived
-  * @param be the backend which expects the data
-  * @param len the expected length
-  * @param userdata data to be passed on to the callback function
-  */
-typedef void(*nbd_expectfunc)(nbd_callback callback, NBD_BACKEND* be, size_t len, void* userdata);
+typedef void(*nbd_callback)(CLIENT* client, void* userdata);
 /**
   * A function which performs raw I/O to a file descriptor, using a buffer, no seeking
   *
@@ -52,9 +40,10 @@ typedef void(*nbd_expectfunc)(nbd_callback callback, NBD_BACKEND* be, size_t len
   * @param buf the memory buffer
   * @param len (expected) size of the data to read or write
   * @return the actual number of bytes read or written. May be less than len or
-  * zero, should be -1 in case of error.
+  * zero if reading or writing data now would cause blocking, should be -1 in
+  * case of error.
   */
-typedef ssize_t(*nbd_buffunc)(int fd, void* buf, size_t len);
+typedef ssize_t(*nbd_buffunc)(NBD_BACKEND* be, int fd, void* buf, size_t len);
 /**
   * A function to perform "fast" I/O.
   *
@@ -65,9 +54,10 @@ typedef ssize_t(*nbd_buffunc)(int fd, void* buf, size_t len);
   * @param finalize a function to call when the I/O operation has completed
   * @param userdata data to pass along to the finalize function
   * @return the actual number of bytes read or written. May be less than len or
-  * zero, should be -1 in case of error.
+  * zero if reading or writing data now would cause blocking, should be -1 in
+  * case of error.
   */
-typedef ssize_t(*nbd_iofunc)(NBD_BACKEND* be, int socket, off_t offset, size_t len, nbd_callback finalize, void* userdata);
+typedef ssize_t(*nbd_iofunc)(NBD_BACKEND* be, int socket, off_t offset, size_t len);
 /**
   * A function to initialize a backend
   *
@@ -157,6 +147,7 @@ struct nbd_client {
 	bool want_write;     /**< true if we want to write to the socket. */
 	bool active;         /**< true if the client connection is still active. */
 	NBD_BACKEND* backend;/**< The first backend */
+	void* privdata;      /**< nbd-server private data (not to be used by plugins) */
 };
 
 /* Constants and macros */
@@ -261,4 +252,62 @@ int append_serve(const SERVER *const s, GArray *const a);
  * impossible.
  **/
 uint64_t size_autodetect(int fhandle);
+
+/**
+ * Enqueue buffer data for sending to a client.
+ *
+ * @param client the client to which we need to send data
+ * @param buf the data to send
+ * @param size the size of buf
+ * @param more true if this function (thread) will expect to call nbd_send_data or nbd_copy_data again.
+ * @param cb a callback to call when the backend has finished sending out data
+ * @param userdata opaque pointer passed on to cb
+ **/
+void nbd_send_data(CLIENT* client, void* buf, size_t size, bool more, nbd_callback cb, void* userdata);
+
+/**
+ * Register a desire to send out data to a client, not necessarily using a buffer
+ *
+ * @param client the client to which we need to send data
+ * @param offset the offset in the client's backend from which to start sending
+ * @param size the amount of data to send
+ * @param more true if this function (thread) will expect to call nbd_send_data or nbd_copy_data again.
+ * @param cb a callback to call when the backend has finished sending out data
+ * @param userdata opaque pointer passed on to cb
+ **/
+void nbd_copy_out_data(CLIENT* client, off_t offset, size_t len, bool more, nbd_callback cb, void* userdata);
+
+/**
+ * Enqueue desire to read something from a client
+ *
+ * @param client the client to read from
+ * @param buf the buffer to read into. Must be at least size bytes long.
+ * @param size the amount of bytes to read.
+ * @param cb a callback to call when the backend has finished reading the data into the buffer
+ * @param userdata opaque pointer passed on to cb
+ **/
+void nbd_read_data(CLIENT* client, void* buf, size_t size, nbd_callback cb, void* userdata);
+
+/**
+ * Enqueue desire to read something from a client, not necessarily using a buffer
+ *
+ * @param client the client to read from
+ * @param offset the offset in the client's backend from where to start writing
+ * @param size the amount of bytes to read.
+ * @param cb a callback to call when the backend has finished reading the data into the buffer
+ * @param userdata opaque pointer passed on to cb
+ **/
+void nbd_copy_in_data(CLIENT* client, off_t offset, size_t len, nbd_callback cb, void* userdata);
+
+/**
+ * Process data that is available for read on a client's socket
+ *
+ * @param client the client for which we're reading data
+ **/
+void nbd_read_ready(CLIENT* client);
+
+/**
+ * Write out any data that's waiting to be written out to a client
+ **/
+void nbd_write_ready(CLIENT* client);
 #endif //NBDSRV_H

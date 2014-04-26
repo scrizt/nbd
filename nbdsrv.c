@@ -21,6 +21,27 @@
 
 #include <cliserv.h>
 
+typedef enum {
+	BUF,
+	NOBUF,
+} nbd_iotype;
+
+typedef struct _nbd_queue {
+	nbd_iotype type;
+	size_t len;
+	union {
+		void* buf;
+		off_t offset;
+	} u;
+	nbd_callback cb;
+	void* userdata;
+} nbd_queue;
+
+typedef struct _nbd_privdata {
+	GList* in;
+	GList* out;
+} nbd_privdata;
+
 bool address_matches(const char* mask, const void* addr, int af, GError** err) {
 	struct addrinfo *res, *aitmp, hints;
 	char *masksep;
@@ -287,3 +308,125 @@ uint64_t size_autodetect(int fhandle) {
 	return UINT64_MAX;
 }
 
+/* more is only going to be used once we do multithreading, which is "not now" */
+void nbd_send_data(CLIENT* client, void* buf, size_t size, bool more G_GNUC_UNUSED, nbd_callback cb, void* userdata) {
+	nbd_privdata* priv = (nbd_privdata*)client->privdata;
+	nbd_queue* newitem = g_new0(nbd_queue, 1);
+	newitem->type = BUF;
+	newitem->u.buf = buf;
+	newitem->len = size;
+	newitem->cb = cb;
+	newitem->userdata = userdata;
+	priv->out = g_list_append(priv->out, newitem);
+}
+
+void nbd_copy_out_data(CLIENT* client, off_t offset, size_t len, bool more, nbd_callback cb, void* userdata) {
+	nbd_privdata* priv = (nbd_privdata*) client->privdata;
+	nbd_queue* newitem = g_new0(nbd_queue, 1);
+	newitem->type = NOBUF;
+	newitem->u.offset = offset;
+	newitem->len = len;
+	newitem->cb = cb;
+	newitem->userdata = userdata;
+	priv->out = g_list_append(priv->out, newitem);
+}
+
+void nbd_read_data(CLIENT* client, void* buf, size_t size, nbd_callback cb, void* userdata) {
+	nbd_privdata* priv = (nbd_privdata*) client->privdata;
+	nbd_queue* newitem = g_new0(nbd_queue, 1);
+	newitem->type = BUF;
+	newitem->u.buf = buf;
+	newitem->len = size;
+	newitem->cb = cb;
+	newitem->userdata = userdata;
+	priv->in = g_list_append(priv->in, newitem);
+}
+
+void nbd_copy_in_data(CLIENT* client, off_t offset, size_t len, nbd_callback cb, void* userdata) {
+	nbd_privdata* priv = (nbd_privdata*) client->privdata;
+	nbd_queue* newitem = g_new0(nbd_queue, 1);
+	newitem->type = NOBUF;
+	newitem->u.offset = offset;
+	newitem->len = len;
+	newitem->cb = cb;
+	newitem->userdata = userdata;
+	priv->in = g_list_append(priv->in, newitem);
+}
+
+void nbd_read_ready(CLIENT* client) {
+	nbd_privdata* priv = (nbd_privdata*) client->privdata;
+
+	if(priv->in == NULL) {
+		/* No callback for this function has been registered yet.
+		 * Return to the main loop, hope that it will still show up. */
+		return;
+	}
+	nbd_queue* first = (nbd_queue*)priv->in->data;
+	if(first->len > 0) {
+		ssize_t rest;
+		switch(first->type) {
+			case BUF:
+				rest = client->backend->copy_to_buffer(client->backend, client->net, first->u.buf, first->len);
+				break;
+			case NOBUF:
+				rest = client->backend->copy_to_file(client->backend, client->net, first->u.offset, first->len);
+				break;
+			default:
+				/* TODO: error handling */
+				break;
+		}
+		if(rest < 0) {
+			/* TODO: error handling */
+		}
+		first->len -= rest;
+	}
+	if(first->len == 0 && first->cb != NULL) {
+		first->cb(client, first->userdata);
+		priv->in = g_list_delete_link(priv->in, priv->in);
+		g_free(first);
+	}
+	first = (nbd_queue*)priv->in->data;
+	if(first != NULL && first->len == 0) {
+		/* recurse */
+		nbd_write_ready(client);
+	}
+}
+
+void nbd_write_ready(CLIENT* client) {
+	nbd_privdata* priv = (nbd_privdata*) client->privdata;
+
+	if(priv->out == NULL) {
+		/* No callback for this function has been registered yet.
+		 * Return to the main loop, hope that it will still show up. */
+		return;
+	}
+	nbd_queue* first = (nbd_queue*)priv->out->data;
+	if(first->len > 0) {
+		ssize_t rest;
+		switch(first->type) {
+			case BUF:
+				rest = client->backend->copy_from_buffer(client->backend, client->net, first->u.buf, first->len);
+				break;
+			case NOBUF:
+				rest = client->backend->copy_from_file(client->backend, client->net, first->u.offset, first->len);
+				break;
+			default:
+				/* TODO: error handling */
+				break;
+		}
+		if(rest < 0) {
+			/* TODO: error handling */
+		}
+		first->len -= rest;
+	}
+	if(first->len == 0 && first->cb != NULL) {
+		first->cb(client, first->userdata);
+		priv->out = g_list_delete_link(priv->out, priv->out);
+		g_free(first);
+	}
+	first = (nbd_queue*)priv->out->data;
+	if(first != NULL && first->len == 0) {
+		/* recurse */
+		nbd_write_ready(client);
+	}
+}

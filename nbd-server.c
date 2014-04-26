@@ -1443,41 +1443,53 @@ CLIENT* negotiate(int net, CLIENT *client, GArray* servers, int phase) {
 	return NULL;
 }
 
-static void expect_header(NBD_BACKEND* be, void* data, void* state);
+static void expect_header(CLIENT* client, void* data);
 
-void send_reply_header_callback(NBD_BACKEND* be, void* commdata, void* userdata) {
-	assert(commdata == NULL);
+static void cleanup_reply(CLIENT* cl G_GNUC_UNUSED, void* userdata) {
+	g_free(userdata);
+}
+
+static void send_reply_header_callback(CLIENT* client, void* userdata) {
 	struct nbd_reply* reply = (struct nbd_reply*) userdata;
 
-	be->send_data(be->net, reply, sizeof(struct nbd_reply));
-	be->expect_data(expect_header, be, sizeof(struct nbd_request), userdata);
-	if(be->client->transactionlogfd != -1) {
-		writeit(be->client->transactionlogfd, reply, sizeof(struct nbd_reply));
+	nbd_send_data(client, reply, sizeof(struct nbd_reply), false, cleanup_reply, userdata);
+	struct nbd_request* req = g_new0(struct nbd_request, 1);
+	nbd_read_data(client, req, sizeof(struct nbd_request), expect_header, req);
+	if(client->transactionlogfd != -1) {
+		writeit(client->transactionlogfd, reply, sizeof(struct nbd_reply));
 	}
 }
 
-void handle_write(CLIENT* client, struct nbd_request* request, struct nbd_reply reply) {
+static void handle_write(CLIENT* client, struct nbd_request* request, struct nbd_reply reply) {
 	void* data = g_malloc(sizeof(reply));
 	memcpy(data, &reply, sizeof(reply));
-	client->backend->copy_to_file(client->backend, client->net, (off_t)request->from, (size_t)request->len, send_reply_header_callback, data);
+	nbd_copy_in_data(client, (off_t)request->from, (size_t)request->len, send_reply_header_callback, data);
 }
 
-void handle_flush(CLIENT* client, struct nbd_request* request, struct nbd_reply reply) {
+static void handle_flush(CLIENT* client, struct nbd_request* request, struct nbd_reply reply) {
 	void* data = g_malloc(sizeof(reply));
 	memcpy(data, &reply, sizeof(reply));
-	client->backend->flush(send_reply_header_callback, data);
+	/* TODO: when doing multithreading, lock the whole system and make sure
+	 * the flush isn't done until all outstanding writes have finished. */
+	client->backend->flush();
+	nbd_send_data(client, data, sizeof(struct nbd_reply), false, cleanup_reply, data);
 }
 
-void handle_read(CLIENT* client, struct nbd_request* request, struct nbd_reply reply) {
+static void handle_read(CLIENT* client, struct nbd_request* request, struct nbd_reply reply) {
 	void* data = g_malloc(sizeof(reply));
 	memcpy(data, &reply, sizeof(reply));
-	client->backend->copy_to_socket(client->backend, client->net, (off_t)request->from, (size_t) request->len, send_reply_header_callback, data);
+	nbd_copy_out_data(client, (off_t)request->from, (size_t)request->len, false, send_reply_header_callback, data);
 }
 
-void handle_trim(CLIENT* client, struct nbd_request* request, struct nbd_reply reply) {
+static void handle_trim(CLIENT* client, struct nbd_request* request, struct nbd_reply reply) {
 	void* data = g_malloc(sizeof(reply));
 	memcpy(data, &reply, sizeof(reply));
-	client->backend->trim(client->backend, client->net, (off_t)request->from, (size_t) request->len, send_reply_header_callback, data);
+	/* TODO: when doing multithreading, postpone this until all outstanding
+	 * writes are done */
+	assert(client->backend->trim(client->backend, client->net, (off_t)request->from, (size_t) request->len) == request->len);
+	/* use send_reply_header_data so handling of sending the reply header is centralized */
+	/* TODO: maybe create a function or macro to do this? */
+	nbd_send_data(client, NULL, 0, false, send_reply_header_callback, data);
 }
 
 /** sending macro. */
@@ -1487,7 +1499,7 @@ void handle_trim(CLIENT* client, struct nbd_request* request, struct nbd_reply r
 /** error macro. */
 #define ERROR(client,reply,errcode) { reply.error = htonl(errcode); SEND(client->net,reply); reply.error = 0; }
 
-void expect_header(NBD_BACKEND* be, void* data, void* state) {
+void expect_header(CLIENT* client, void* data) {
 	struct nbd_request *request;
 	struct nbd_reply reply;
 	uint16_t command;
@@ -1500,8 +1512,8 @@ void expect_header(NBD_BACKEND* be, void* data, void* state) {
 	reply.error = 0;
 
 	request = (struct nbd_request*)data;
-	if (be->client->transactionlogfd != -1)
-		writeit(be->client->transactionlogfd, request, sizeof(request));
+	if (client->transactionlogfd != -1)
+		writeit(client->transactionlogfd, request, sizeof(request));
 
 	request->from = ntohll(request->from);
 	request->type = ntohl(request->type);
@@ -1524,7 +1536,7 @@ void expect_header(NBD_BACKEND* be, void* data, void* state) {
 			return;
 		}
 
-		if (((off_t)request->from + request->len) > be->client->exportsize) {
+		if (((off_t)request->from + request->len) > client->exportsize) {
 			DEBUG("[RANGE!]");
 			//ERROR(client, reply, EINVAL);
 			return;
@@ -1535,18 +1547,18 @@ void expect_header(NBD_BACKEND* be, void* data, void* state) {
 
 	case NBD_CMD_DISC:
 		msg(LOG_INFO, "Disconnect request received.");
-        	if (be->client->server->flags & F_COPYONWRITE) { 
-			if (be->client->difmap) g_free(be->client->difmap) ;
-        		close(be->client->difffile);
-			unlink(be->client->difffilename);
-			free(be->client->difffilename);
+		if (client->server->flags & F_COPYONWRITE) { 
+			if (client->difmap) g_free(client->difmap) ;
+			close(client->difffile);
+			unlink(client->difffilename);
+			free(client->difffilename);
 		}
-		be->client->active=false;
+		client->active=false;
 		return;
 
 	case NBD_CMD_WRITE:
 		DEBUG("wr: ");
-		handle_write(be->client, request, reply);
+		handle_write(client, request, reply);
 		/*while(len > 0) {
 			readit(client->net, buf, currlen);
 			DEBUG("buf->exp, ");
@@ -1574,22 +1586,22 @@ void expect_header(NBD_BACKEND* be, void* data, void* state) {
 
 	case NBD_CMD_FLUSH:
 		DEBUG("fl: ");
-		handle_flush(be->client, request, reply)
-		/*if (expflush(be->client)) {
+		handle_flush(client, request, reply)
+		/*if (expflush(client)) {
 			DEBUG("Flush failed: %m");
-			ERROR(be->client, reply, errno);
+			ERROR(client, reply, errno);
 			return;
 		}
-		SEND(be->client->net, reply);*/
+		SEND(client->net, reply);*/
 		DEBUG("OK!\n");
 		return;
 
 	case NBD_CMD_READ:
 		DEBUG("rd: ");
-		handle_read(be->client, request, reply);
-		/*if (be->client->transactionlogfd != -1)
-			writeit(be->client->transactionlogfd, &reply, sizeof(reply));
-		writeit(be->client->net, &reply, sizeof(reply));
+		handle_read(client, request, reply);
+		/*if (client->transactionlogfd != -1)
+			writeit(client->transactionlogfd, &reply, sizeof(reply));
+		writeit(client->net, &reply, sizeof(reply));
 		p = buf;
 		writelen = currlen;
 		while(len > 0) {
@@ -1614,8 +1626,8 @@ void expect_header(NBD_BACKEND* be, void* data, void* state) {
 		/* The kernel module sets discard_zeroes_data == 0,
 		 * so it is okay to do nothing.  */
 		DEBUG("tr: ");
-		handle_trim(be->client, request, reply);
-		/*if (exptrim(&request, be->client)) {
+		handle_trim(client, request, reply);
+		/*if (exptrim(&request, client)) {
 			DEBUG("Trim failed: %m");
 			ERROR(client, reply, errno);
 			continue;
@@ -1628,73 +1640,6 @@ void expect_header(NBD_BACKEND* be, void* data, void* state) {
 		DEBUG ("Ignoring unknown command\n");
 		return;
 	}
-}
-
-struct nbd_data_expect {
-	size_t len;
-	nbd_callback cb;
-	void* data;
-	enum {
-		NBD_READ_BUF,
-		NBD_WRITE_BUF,
-		NBD_COPY_FILE,
-		NBD_COPY_SOCKET,
-	} type;
-};
-
-struct nbd_iodata {
-	GSList* read_queue;
-	GSList* write_queue;
-	size_t inbuflen;
-	void* inbuf;
-};
-
-/**
-  * The default implementation for nbd_backend::expect_data().
-  *
-  * @todo what is this doing here? Should be in nbdsrv.c
-  */
-void default_expect_data(nbd_callback cb, NBD_BACKEND* be, size_t len, void* userdata) {
-	if(G_UNLIKELY(be->data == NULL)) {
-		be->data = g_new0(struct nbd_iodata, 1);
-	}
-	struct nbd_iodata* dat = (struct nbd_iodata*)be->data;
-	struct nbd_data_expect* exp = g_new0(struct nbd_data_expect, 1);
-	exp->len = len;
-	exp->cb = cb;
-	exp->data = userdata;
-	exp->type = NBD_READ_BUF;
-	dat->read_queue = g_slist_append(dat->read_queue, exp);
-}
-
-void nbd_dispatch_read(NBD_BACKEND* be, void* commdata G_GNUC_UNUSED, void* userdata G_GNUC_UNUSED) {
-	struct nbd_iodata* dat = (struct nbd_iodata*)be->data;
-	struct nbd_data_expect* exp;
-	GSList* l = dat->read_queue;
-	if(dat->inbuflen && l) {
-		exp = l->data;
-		while(l && exp->len < dat->inbuflen) {
-			exp->cb(be, dat->inbuf, exp->data);
-			dat->inbuflen -= exp->len;
-			dat->read_queue = l = g_slist_delete_link(l, l);
-			if(l) {
-				exp = (struct nbd_data_expect*)l->data;
-			}
-			if(dat->inbuflen == 0) {
-				g_free(dat->inbuf);
-				dat->inbuf = NULL;
-			} else {
-				dat->inbuf += exp->len;
-			}
-			g_free(exp);
-		}
-	}
-	/*if(l) {
-		exp = (struct nbd_data_expect*)l->data;
-		if(exp->type == NBD_READ_COPY) {
-			
-		}
-	}*/
 }
 
 /**
@@ -1730,10 +1675,10 @@ int mainloop(CLIENT *client) {
 
 		select(client->net+1, &rset, &wset, &eset, NULL);
 		if(FD_ISSET(client->net, &rset)) {
-			client->backend->read_ready(client->backend, NULL, NULL);
+			nbd_read_ready(client);
 		}
 		if(FD_ISSET(client->net, &wset)) {
-			client->backend->write_ready(client->backend, NULL, NULL);
+			nbd_write_ready(client);
 		}
 		if(FD_ISSET(client->net, &eset)) {
 			/** @todo: verify what "exceptions" could be beyond "EOF", which we handle */
