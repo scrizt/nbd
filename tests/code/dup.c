@@ -3,7 +3,7 @@
 #include <string.h>
 #include "macro.h"
 
-inline int stringcmp(const char* a, const char* b) {
+int stringcmp(const char* a, const char* b) {
 	if(a == NULL && b == NULL) {
 		return 0;
 	}
@@ -17,7 +17,6 @@ inline int stringcmp(const char* a, const char* b) {
 }
 
 int main(void) {
-	int count=0;
 	SERVER *srvd;
 	SERVER srvs = {
 		.exportname = "foo",
