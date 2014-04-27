@@ -12,6 +12,7 @@
 #include <sys/types.h>
 #include <stdint.h>
 #include <unistd.h>
+#include <glib.h>
 #include "config.h"
 /* We don't want to do syslog output in this program */
 #undef ISSERVER

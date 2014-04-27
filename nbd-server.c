@@ -160,6 +160,7 @@ char default_authname[] = SYSCONFDIR "/nbd-server/allow"; /**< default name of a
 #define NEG_MODERN	(1 << 2)
 
 #include <nbdsrv.h>
+#include <backend-dumb.h>
 
 static volatile sig_atomic_t is_sighup_caught; /**< Flag set by SIGHUP
                                                     handler to mark a
@@ -1088,7 +1089,7 @@ int expread(off_t a, char *buf, size_t len, CLIENT *client) {
 		offset=a-pagestart;
 		rdlen=(0<DIFFPAGESIZE-offset && len<(size_t)(DIFFPAGESIZE-offset)) ?
 			len : (size_t)DIFFPAGESIZE-offset;
-		if (client->difmap[mapcnt]!=(u32)(-1)) { /* the block is already there */
+		if (client->difmap[mapcnt]!=(uint32_t)(-1)) { /* the block is already there */
 			DEBUG("Page %llu is at %lu\n", (unsigned long long)mapcnt,
 			       (unsigned long)(client->difmap[mapcnt]));
 			myseek(client->difffile, client->difmap[mapcnt]*DIFFPAGESIZE+offset);
@@ -1134,7 +1135,7 @@ int expwrite(off_t a, char *buf, size_t len, CLIENT *client, int fua) {
 		wrlen=(0<DIFFPAGESIZE-offset && len<(size_t)(DIFFPAGESIZE-offset)) ?
 			len : (size_t)DIFFPAGESIZE-offset;
 
-		if (client->difmap[mapcnt]!=(u32)(-1)) { /* the block is already there */
+		if (client->difmap[mapcnt]!=(uint32_t)(-1)) { /* the block is already there */
 			DEBUG("Page %llu is at %lu\n", (unsigned long long)mapcnt,
 			       (unsigned long)(client->difmap[mapcnt])) ;
 			myseek(client->difffile,
@@ -1346,6 +1347,8 @@ CLIENT* init_client(SERVER* srv, int socket) {
 	}
 
 	backend->net = client->net = socket;
+
+	return client;
 }
 
 /**
@@ -1433,7 +1436,7 @@ CLIENT* negotiate(int net, CLIENT *client, GArray* servers, int phase) {
 		}
 	}
 	/* common */
-	size_host = htonll((u64)(client->exportsize));
+	size_host = htonll((uint64_t)(client->exportsize));
 	if (write(net, &size_host, 8) < 0)
 		err("Negotiation failed/9: %m");
 	if (client->server->flags & F_READONLY)
@@ -1680,8 +1683,6 @@ int mainloop(CLIENT *client) {
 
 	client->active = true;
 	while (client->active) {
-		char* p;
-		size_t writelen;
 		fd_set wset;
 		fd_set rset;
 		fd_set eset;
@@ -1827,9 +1828,9 @@ int copyonwrite_prepare(CLIENT* client) {
 	msg(LOG_INFO, "About to create map and diff file %s", client->difffilename) ;
 	client->difffile=open(client->difffilename,O_RDWR | O_CREAT | O_TRUNC,0600) ;
 	if (client->difffile<0) err("Could not create diff file (%m)") ;
-	if ((client->difmap=calloc(client->exportsize/DIFFPAGESIZE,sizeof(u32)))==NULL)
+	if ((client->difmap=calloc(client->exportsize/DIFFPAGESIZE,sizeof(uint32_t)))==NULL)
 		err("Could not allocate memory") ;
-	for (i=0;i<client->exportsize/DIFFPAGESIZE;i++) client->difmap[i]=(u32)-1 ;
+	for (i=0;i<client->exportsize/DIFFPAGESIZE;i++) client->difmap[i]=(uint32_t)-1 ;
 
 	return 0;
 }
@@ -1906,8 +1907,6 @@ void serveconnection(CLIENT *client) {
  **/
 int set_peername(int net, CLIENT *client) {
 	struct sockaddr_storage netaddr;
-	struct sockaddr_in  *netaddr4 = NULL;
-	struct sockaddr_in6 *netaddr6 = NULL;
 	socklen_t addrinlen = sizeof( struct sockaddr_storage );
 	struct addrinfo hints;
 	struct addrinfo *ai = NULL;
@@ -1916,7 +1915,6 @@ int set_peername(int net, CLIENT *client) {
 	char *tmp = NULL;
 	int i;
 	int e;
-	int shift;
 
 	if (getpeername(net, (struct sockaddr *) &(client->clientaddr), &addrinlen) < 0) {
 		msg(LOG_INFO, "getpeername failed: %m");
@@ -1964,7 +1962,7 @@ int set_peername(int net, CLIENT *client) {
 			} else if(ai->ai_family == AF_INET6) {
 				addrbits = 128;
 			}
-			uint8_t* addrptr = ((struct sockaddr*)&netaddr)->sa_data;
+			uint8_t* addrptr = (uint8_t*)(((struct sockaddr*)&netaddr)->sa_data);
 			for(int i = 0; i < addrbits; i+=8) {
 				int masklen = client->server->cidrlen - i;
 				masklen = masklen > 0 ? masklen : 0;
@@ -2571,7 +2569,6 @@ int open_modern(const gchar *const addr, const gchar *const port,
 	struct sock_flags;
 	int e;
         int retval = -1;
-	int i=0;
 	int sock = -1;
 
 	memset(&hints, '\0', sizeof(hints));

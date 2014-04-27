@@ -227,8 +227,8 @@ void ask_list(int sock) {
 		err("Failed writing length");
 }
 
-void negotiate(int sock, u64 *rsize64, u32 *flags, char* name, uint32_t needed_flags, uint32_t client_flags, uint32_t do_opts) {
-	u64 magic, size64;
+void negotiate(int sock, uint64_t *rsize64, uint32_t *flags, char* name, uint32_t needed_flags, uint32_t client_flags, uint32_t do_opts) {
+	uint64_t magic, size64;
 	uint16_t tmp;
 	char buf[256] = "\0\0\0\0\0\0\0\0\0";
 
@@ -256,7 +256,7 @@ void negotiate(int sock, u64 *rsize64, u32 *flags, char* name, uint32_t needed_f
 		if(read(sock, &tmp, sizeof(uint16_t)) < 0) {
 			err("Failed reading flags: %m");
 		}
-		*flags = ((u32)ntohs(tmp));
+		*flags = ((uint32_t)ntohs(tmp));
 		if((needed_flags & *flags) != needed_flags) {
 			/* There's currently really only one reason why this
 			 * check could possibly fail, but we may need to change
@@ -282,7 +282,7 @@ void negotiate(int sock, u64 *rsize64, u32 *flags, char* name, uint32_t needed_f
 		opt = ntohl(NBD_OPT_EXPORT_NAME);
 		if (write(sock, &opt, sizeof(opt)) < 0)
 			err("Failed/2.3: %m");
-		namesize = (u32)strlen(name);
+		namesize = (uint32_t)strlen(name);
 		namesize = ntohl(namesize);
 		if (write(sock, &namesize, sizeof(namesize)) < 0)
 			err("Failed/2.4: %m");
@@ -328,7 +328,7 @@ void negotiate(int sock, u64 *rsize64, u32 *flags, char* name, uint32_t needed_f
 	*rsize64 = size64;
 }
 
-void setsizes(int nbd, u64 size64, int blocksize, u32 flags) {
+void setsizes(int nbd, uint64_t size64, int blocksize, uint32_t flags) {
 	unsigned long size;
 	int read_only = (flags & NBD_FLAG_READ_ONLY) ? 1 : 0;
 
@@ -434,8 +434,8 @@ int main(int argc, char *argv[]) {
 	int timeout=0;
 	int sdp=0;
 	int G_GNUC_UNUSED nofork=0; // if -dNOFORK
-	u64 size64;
-	u32 flags;
+	uint64_t size64;
+	uint32_t flags;
 	int c;
 	int nonspecial=0;
 	char* name=NULL;
@@ -628,8 +628,8 @@ int main(int argc, char *argv[]) {
 				cont=0;
 			} else {
 				if(cont) {
-					u64 new_size;
-					u32 new_flags;
+					uint64_t new_size;
+					uint32_t new_flags;
 
 					close(sock); close(nbd);
 					for (;;) {

@@ -123,11 +123,6 @@ uint8_t getmaskbyte(int masklen) {
 int authorized_client(CLIENT *opts) {
 	FILE *f ;
 	char line[LINELEN]; 
-	char *tmp;
-	struct in_addr addr;
-	struct in_addr client;
-	struct in_addr cltemp;
-	int len;
 
 	if ((f=fopen(opts->server->authname,"r"))==NULL) {
                 msg(LOG_INFO, "Can't open authorization file %s (%s).",
@@ -269,7 +264,7 @@ int append_serve(const SERVER *const s, GArray *const a) {
 
 uint64_t size_autodetect(int fhandle) {
 	off_t es;
-	u64 bytes __attribute__((unused));
+	uint64_t bytes __attribute__((unused));
 	struct stat stat_buf;
 	int error;
 
