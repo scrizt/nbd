@@ -1326,6 +1326,28 @@ static void handle_list(uint32_t opt, int net, GArray* servers, uint32_t cflags)
 	send_reply(opt, net, NBD_REP_ACK, 0, NULL);
 }
 
+static void default_init(NBD_BACKEND* be, SERVER* srv) {
+	nbd_dumb_init(be, srv);
+}
+
+/**
+ * Allocate and initialize a CLIENT structure
+ **/
+CLIENT* init_client(SERVER* srv, int socket) {
+	CLIENT* client = g_new0(CLIENT, 1);
+	NBD_BACKEND* backend = g_new0(NBD_BACKEND, 1);
+	client->backend = backend;
+	backend->client = client;
+
+	if(srv->backend_init != NULL) {
+		srv->backend_init(backend, srv);
+	} else {
+		default_init(backend, srv);
+	}
+
+	backend->net = client->net = socket;
+}
+
 /**
  * Do the initial negotiation.
  *

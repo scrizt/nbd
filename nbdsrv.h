@@ -23,8 +23,9 @@ typedef enum {
 	VIRT_CIDR,	/**< Every subnet in its own directory */
 } VIRT_STYLE;
 
-typedef struct nbd_backend NBD_BACKEND;
-typedef struct nbd_client CLIENT;
+typedef struct _nbd_backend NBD_BACKEND;
+typedef struct _nbd_client CLIENT;
+typedef struct _nbd_server SERVER;
 
 /**
   * A callback function
@@ -59,18 +60,17 @@ typedef ssize_t(*nbd_buffunc)(NBD_BACKEND* be, int fd, void* buf, size_t len);
   */
 typedef ssize_t(*nbd_iofunc)(NBD_BACKEND* be, int socket, off_t offset, size_t len);
 /**
-  * A function to initialize a backend
-  *
-  * @todo do we need this? Probably don't.
+  * A function to initialize a backend (i.e., set up its function
+  * pointers)
   */
-typedef bool(*nbd_initfunc)(NBD_BACKEND*, int socket, CLIENT* client);
+typedef bool(*nbd_initfunc)(NBD_BACKEND* be, SERVER* srv);
 
 typedef struct _backend_template {
 	nbd_initfunc init;	   /**< initializer. */
 	nbd_initfunc deinit;	   /**< deinitializer. */
 } NBD_BACKEND_TEMPLATE;
 
-struct nbd_backend {
+struct _nbd_backend {
 	struct nbd_backend* next;/**< The next in case of a stack of
 				     backends. May be NULL. */
 	int cur_file;		/**< The file that this backend should
@@ -100,7 +100,7 @@ struct nbd_backend {
 /**
  * Variables associated with a server.
  **/
-typedef struct {
+struct _nbd_server {
 	gchar* exportname;     /**< (unprocessed) filename of the file we're exporting */
 	off_t expected_size;   /**< size of the exported file as it was told to
 			       us through configuration */
@@ -120,12 +120,13 @@ typedef struct {
 	gchar* servename;      /**< name of the export as selected by nbd-client */
 	int max_connections;   /**< maximum number of opened connections */
 	gchar* transactionlog; /**< filename for transaction log */
-} SERVER;
+	nbd_initfunc backend_init; /**< initializer for the used backend */
+};
 
 /**
   * Variables associated with a client connection
   */
-struct nbd_client {
+struct _nbd_client {
 	uint64_t exportsize;    /**< size of the file we're exporting */
 	char *clientname;    /**< peer, in human-readable format */
 	struct sockaddr_storage clientaddr; /**< peer, in binary format, network byte order */
