@@ -341,7 +341,7 @@ int setup_connection(gchar *hostname, int port, gchar* name, CONNECTION_TYPE cty
 	struct sockaddr_in addr;
 	char buf[256];
 	uint64_t mymagic = (name ? opts_magic : cliserv_magic);
-	u64 tmp64;
+	uint64_t tmp64;
 	uint32_t tmp32 = 0;
 
 	sock=0;
@@ -421,7 +421,7 @@ end:
 
 int close_connection(int sock, CLOSE_TYPE type) {
 	struct nbd_request req;
-	u64 counter=0;
+	uint64_t counter=0;
 
 	switch(type) {
 		case CONNECTION_CLOSE_PROPERLY:
@@ -457,12 +457,12 @@ int read_packet_check_header(int sock, size_t datasize, long long int curhandle)
 	rep.magic=ntohl(rep.magic);
 	rep.error=ntohl(rep.error);
 	if(rep.magic!=NBD_REPLY_MAGIC) {
-		snprintf(errstr, errstr_len, "Received package with incorrect reply_magic. Index of sent packages is %lld (0x%llX), received handle is %lld (0x%llX). Received magic 0x%lX, expected 0x%lX", (long long int)curhandle, (long long unsigned int)curhandle, (long long int)*((u64*)rep.handle), (long long unsigned int)*((u64*)rep.handle), (long unsigned int)rep.magic, (long unsigned int)NBD_REPLY_MAGIC);
+		snprintf(errstr, errstr_len, "Received package with incorrect reply_magic. Index of sent packages is %lld (0x%llX), received handle is %lld (0x%llX). Received magic 0x%lX, expected 0x%lX", (long long int)curhandle, (long long unsigned int)curhandle, (long long int)*((uint64_t*)rep.handle), (long long unsigned int)*((uint64_t*)rep.handle), (long unsigned int)rep.magic, (long unsigned int)NBD_REPLY_MAGIC);
 		retval=-1;
 		goto end;
 	}
 	if(rep.error) {
-		snprintf(errstr, errstr_len, "Received error from server: %ld (0x%lX). Handle is %lld (0x%llX).", (long int)rep.error, (long unsigned int)rep.error, (long long int)(*((u64*)rep.handle)), (long long unsigned int)*((u64*)rep.handle));
+		snprintf(errstr, errstr_len, "Received error from server: %ld (0x%lX). Handle is %lld (0x%llX).", (long int)rep.error, (long unsigned int)rep.error, (long long int)(*((uint64_t*)rep.handle)), (long long unsigned int)*((uint64_t*)rep.handle));
 		retval=-1;
 		goto end;
 	}
@@ -1271,7 +1271,6 @@ int main(int argc, char**argv) {
 	char* name = NULL;
 	int sock=0;
 	int c;
-	int nonopt=0;
 	int testflags=0;
 	testfunc test = throughput_test;
 
