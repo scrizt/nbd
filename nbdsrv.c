@@ -303,9 +303,19 @@ uint64_t size_autodetect(int fhandle) {
 	return UINT64_MAX;
 }
 
+nbd_privdata* get_priv(CLIENT* client) {
+        nbd_privdata* retval = (nbd_privdata*)client->privdata;
+	if(!retval) {
+		retval = g_new0(nbd_privdata, 1);
+		client->privdata = retval;
+	}
+	return retval;
+}
+
 /* more is only going to be used once we do multithreading, which is "not now" */
+/* XXX these four should be a macro or an inline function or something */
 void nbd_send_data(CLIENT* client, void* buf, size_t size, bool more G_GNUC_UNUSED, nbd_callback cb, void* userdata) {
-	nbd_privdata* priv = (nbd_privdata*)client->privdata;
+	nbd_privdata* priv = get_priv(client);
 	nbd_queue* newitem = g_new0(nbd_queue, 1);
 	newitem->type = BUF;
 	newitem->u.buf = buf;
@@ -316,7 +326,7 @@ void nbd_send_data(CLIENT* client, void* buf, size_t size, bool more G_GNUC_UNUS
 }
 
 void nbd_copy_out_data(CLIENT* client, off_t offset, size_t len, bool more, nbd_callback cb, void* userdata) {
-	nbd_privdata* priv = (nbd_privdata*) client->privdata;
+	nbd_privdata* priv = get_priv(client);
 	nbd_queue* newitem = g_new0(nbd_queue, 1);
 	newitem->type = NOBUF;
 	newitem->u.offset = offset;
@@ -327,7 +337,7 @@ void nbd_copy_out_data(CLIENT* client, off_t offset, size_t len, bool more, nbd_
 }
 
 void nbd_read_data(CLIENT* client, void* buf, size_t size, nbd_callback cb, void* userdata) {
-	nbd_privdata* priv = (nbd_privdata*) client->privdata;
+	nbd_privdata* priv = get_priv(client);
 	nbd_queue* newitem = g_new0(nbd_queue, 1);
 	newitem->type = BUF;
 	newitem->u.buf = buf;
@@ -338,7 +348,7 @@ void nbd_read_data(CLIENT* client, void* buf, size_t size, nbd_callback cb, void
 }
 
 void nbd_copy_in_data(CLIENT* client, off_t offset, size_t len, nbd_callback cb, void* userdata) {
-	nbd_privdata* priv = (nbd_privdata*) client->privdata;
+	nbd_privdata* priv = get_priv(client);
 	nbd_queue* newitem = g_new0(nbd_queue, 1);
 	newitem->type = NOBUF;
 	newitem->u.offset = offset;
@@ -349,7 +359,7 @@ void nbd_copy_in_data(CLIENT* client, off_t offset, size_t len, nbd_callback cb,
 }
 
 void nbd_read_ready(CLIENT* client) {
-	nbd_privdata* priv = (nbd_privdata*) client->privdata;
+	nbd_privdata* priv = get_priv(client);
 
 	if(priv->in == NULL) {
 		/* No callback for this function has been registered yet.
@@ -388,7 +398,7 @@ void nbd_read_ready(CLIENT* client) {
 }
 
 void nbd_write_ready(CLIENT* client) {
-	nbd_privdata* priv = (nbd_privdata*) client->privdata;
+	nbd_privdata* priv = get_priv(client);
 
 	if(priv->out == NULL) {
 		/* No callback for this function has been registered yet.
