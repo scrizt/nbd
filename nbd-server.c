@@ -231,7 +231,7 @@ struct generic_conf {
  * @param command The command number (after applying NBD_CMD_MASK_COMMAND)
  * @return pointer to the command name
  **/
-static inline const char * getcommandname(uint64_t command) {
+static const char * getcommandname(uint64_t command) {
 	switch (command) {
 	case NBD_CMD_READ:
 		return "NBD_CMD_READ";
@@ -255,7 +255,7 @@ static inline const char * getcommandname(uint64_t command) {
  * @param buf a buffer
  * @param len the number of bytes to be read
  **/
-static inline void readit(int f, void *buf, size_t len) {
+static void readit(int f, void *buf, size_t len) {
 	ssize_t res;
 	while (len > 0) {
 		DEBUG("*");
@@ -278,7 +278,7 @@ static inline void readit(int f, void *buf, size_t len) {
  * @param len the number of bytes to consume
  * @param bufsiz the size of the buffer
  **/
-static inline void consume(int f, void * buf, size_t len, size_t bufsiz) {
+static void consume(int f, void * buf, size_t len, size_t bufsiz) {
 	size_t curlen;
 	while (len>0) {
 		curlen = (len>bufsiz)?bufsiz:len;
@@ -294,7 +294,7 @@ static inline void consume(int f, void * buf, size_t len, size_t bufsiz) {
  * @param buf a buffer containing data
  * @param len the number of bytes to be written
  **/
-static inline void writeit(int f, void *buf, size_t len) {
+static void writeit(int f, void *buf, size_t len) {
 	ssize_t res;
 	while (len > 0) {
 		DEBUG("+");
