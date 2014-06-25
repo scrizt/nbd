@@ -305,6 +305,33 @@ static void writeit(int f, void *buf, size_t len) {
 	}
 }
 
+static void default_init(NBD_BACKEND* be, SERVER* srv) {
+	nbd_dumb_init(be, srv);
+}
+
+/**
+ * Allocate and initialize a CLIENT structure
+ **/
+static CLIENT* init_client(SERVER* srv, int socket) {
+	CLIENT* client = g_new0(CLIENT, 1);
+	NBD_BACKEND* backend = g_new0(NBD_BACKEND, 1);
+	client->backend = backend;
+	backend->client = client;
+	client->server = srv;
+	client->exportsize = OFFT_MAX;
+	client->transactionlogfd = -1;
+
+	if(srv->backend_init != NULL) {
+		srv->backend_init(backend, srv);
+	} else {
+		default_init(backend, srv);
+	}
+
+	backend->net = client->net = socket;
+
+	return client;
+}
+
 /**
  * Print out a message about how to use nbd-server. Split out to a separate
  * function so that we can call it from multiple places
@@ -1275,12 +1302,8 @@ static CLIENT* handle_export_name(uint32_t opt, int net, GArray* servers, uint32
 	for(i=0; i<servers->len; i++) {
 		SERVER* serve = &(g_array_index(servers, SERVER, i));
 		if(!strcmp(serve->servename, name)) {
-			CLIENT* client = g_new0(CLIENT, 1);
-			client->server = serve;
-			client->exportsize = OFFT_MAX;
-			client->net = net;
+			CLIENT* client = init_client(serve, net);
 			client->modern = TRUE;
-			client->transactionlogfd = -1;
 			client->clientfeats = cflags;
 			free(name);
 			return client;
@@ -1325,30 +1348,6 @@ static void handle_list(uint32_t opt, int net, GArray* servers, uint32_t cflags)
 		send_reply(opt, net, NBD_REP_SERVER, strlen(serve->servename)+sizeof(len), buf);
 	}
 	send_reply(opt, net, NBD_REP_ACK, 0, NULL);
-}
-
-static void default_init(NBD_BACKEND* be, SERVER* srv) {
-	nbd_dumb_init(be, srv);
-}
-
-/**
- * Allocate and initialize a CLIENT structure
- **/
-CLIENT* init_client(SERVER* srv, int socket) {
-	CLIENT* client = g_new0(CLIENT, 1);
-	NBD_BACKEND* backend = g_new0(NBD_BACKEND, 1);
-	client->backend = backend;
-	backend->client = client;
-
-	if(srv->backend_init != NULL) {
-		srv->backend_init(backend, srv);
-	} else {
-		default_init(backend, srv);
-	}
-
-	backend->net = client->net = socket;
-
-	return client;
 }
 
 /**
@@ -2176,11 +2175,7 @@ handle_oldstyle_connection(GArray *const servers, SERVER *const serve)
 		err("fcntl F_SETFL ~O_NONBLOCK");
 	}
 
-	client = g_new0(CLIENT, 1);
-	client->server=serve;
-	client->exportsize=OFFT_MAX;
-	client->net=net;
-	client->transactionlogfd = -1;
+	client = init_client(serve, net);
 
 	if (set_peername(net, client)) {
 		goto handle_connection_out;
