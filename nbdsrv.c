@@ -323,6 +323,7 @@ void nbd_send_data(CLIENT* client, void* buf, size_t size, bool more G_GNUC_UNUS
 	newitem->cb = cb;
 	newitem->userdata = userdata;
 	priv->out = g_list_append(priv->out, newitem);
+	client->want_write = true;
 }
 
 void nbd_copy_out_data(CLIENT* client, off_t offset, size_t len, bool more, nbd_callback cb, void* userdata) {
@@ -334,6 +335,7 @@ void nbd_copy_out_data(CLIENT* client, off_t offset, size_t len, bool more, nbd_
 	newitem->cb = cb;
 	newitem->userdata = userdata;
 	priv->out = g_list_append(priv->out, newitem);
+	client->want_write = true;
 }
 
 void nbd_read_data(CLIENT* client, void* buf, size_t size, nbd_callback cb, void* userdata) {
@@ -433,5 +435,10 @@ void nbd_write_ready(CLIENT* client) {
 	if(first != NULL && first->len == 0) {
 		/* recurse */
 		nbd_write_ready(client);
+	}
+	if(priv->out != NULL) {
+		client->want_write = true;
+	} else {
+		client->want_write = false;
 	}
 }
