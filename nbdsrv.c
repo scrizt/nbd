@@ -392,11 +392,6 @@ void nbd_read_ready(CLIENT* client) {
 		priv->in = g_list_delete_link(priv->in, priv->in);
 		g_free(first);
 	}
-	first = (nbd_queue*)priv->in->data;
-	if(first != NULL && first->len == 0) {
-		/* recurse */
-		nbd_write_ready(client);
-	}
 }
 
 void nbd_write_ready(CLIENT* client) {
@@ -430,11 +425,6 @@ void nbd_write_ready(CLIENT* client) {
 		first->cb(client, first->userdata);
 		priv->out = g_list_delete_link(priv->out, priv->out);
 		g_free(first);
-	}
-	first = (nbd_queue*)priv->out->data;
-	if(first != NULL && first->len == 0) {
-		/* recurse */
-		nbd_write_ready(client);
 	}
 	if(priv->out != NULL) {
 		client->want_write = true;
