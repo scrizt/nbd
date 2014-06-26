@@ -4,6 +4,7 @@
 #include "lfs.h"
 
 #include <glib.h>
+#include <cliserv.h>
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -149,6 +150,7 @@ struct _nbd_client {
 	bool active;         /**< true if the client connection is still active. */
 	NBD_BACKEND* backend;/**< The first backend */
 	void* privdata;      /**< nbd-server private data (not to be used by plugins) */
+	struct nbd_request req; /**< most recent request sent by this client */
 };
 
 /* Constants and macros */

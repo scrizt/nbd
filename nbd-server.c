@@ -1882,6 +1882,7 @@ void serveconnection(CLIENT *client) {
 
 	setmysockopt(client->net);
 
+	nbd_read_data(client, &(client->req), sizeof(struct nbd_request), expect_header, &(client->req));
 	mainloop(client);
 	do_run(client->server->postrun, client->exportname);
 
