@@ -1794,6 +1794,10 @@ void setupexport(CLIENT* client) {
 			break; /* don't look for any more files */
 		}
 
+		if(!i) {
+			client->backend->cur_file = fi.fhandle;
+		}
+
 		if(!multifile || temporary)
 			break;
 	}
