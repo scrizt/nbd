@@ -1,3 +1,5 @@
+#ifndef CLISERV_H
+#define CLISERV_H
 /* This header file is shared by client & server. They really have
  * something to share...
  * */
@@ -82,3 +84,4 @@ uint64_t ntohll(uint64_t a);
 #define NBD_FLAG_FIXED_NEWSTYLE (1 << 0)	/* new-style export that actually supports extending */
 /* Flags from client to server. Only one such option currently. */
 #define NBD_FLAG_C_FIXED_NEWSTYLE NBD_FLAG_FIXED_NEWSTYLE
+#endif
