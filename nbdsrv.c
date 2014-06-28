@@ -347,6 +347,7 @@ void nbd_read_data(CLIENT* client, void* buf, size_t size, nbd_callback cb, void
 	newitem->cb = cb;
 	newitem->userdata = userdata;
 	priv->in = g_list_append(priv->in, newitem);
+	client->want_read = true;
 }
 
 void nbd_copy_in_data(CLIENT* client, off_t offset, size_t len, nbd_callback cb, void* userdata) {
@@ -358,6 +359,7 @@ void nbd_copy_in_data(CLIENT* client, off_t offset, size_t len, nbd_callback cb,
 	newitem->cb = cb;
 	newitem->userdata = userdata;
 	priv->in = g_list_append(priv->in, newitem);
+	client->want_read = true;
 }
 
 void nbd_read_ready(CLIENT* client) {
@@ -391,6 +393,11 @@ void nbd_read_ready(CLIENT* client) {
 		first->cb(client, first->userdata);
 		priv->in = g_list_delete_link(priv->in, priv->in);
 		g_free(first);
+	}
+	if(priv->out != NULL) {
+		client->want_read = true;
+	} else {
+		client->want_read = false;
 	}
 }
 

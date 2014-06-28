@@ -1691,8 +1691,10 @@ int mainloop(CLIENT *client) {
 		FD_ZERO(&rset);
 		FD_ZERO(&eset);
 
-		FD_SET(client->net, &rset);
 		FD_SET(client->net, &eset);
+		if(client->want_read) {
+			FD_SET(client->net, &rset);
+		}
 		if(client->want_write) {
 			FD_SET(client->net, &wset);
 		}

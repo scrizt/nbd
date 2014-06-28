@@ -147,6 +147,7 @@ struct _nbd_client {
 	int transactionlogfd;/**< fd for transaction log */
 	int clientfeats;     /**< Features supported by this client */
 	bool want_write;     /**< true if we want to write to the socket. */
+	bool want_read;      /**< true if we want to read from the socket. */
 	bool active;         /**< true if the client connection is still active. */
 	NBD_BACKEND* backend;/**< The first backend */
 	void* privdata;      /**< nbd-server private data (not to be used by plugins) */
