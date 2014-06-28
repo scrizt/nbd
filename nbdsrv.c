@@ -370,7 +370,8 @@ void nbd_read_ready(CLIENT* client) {
 		 * Return to the main loop, hope that it will still show up. */
 		return;
 	}
-	nbd_queue* first = (nbd_queue*)priv->in->data;
+	GList* elem = priv->in;
+	nbd_queue* first = (nbd_queue*)elem->data;
 	if(first->len > 0) {
 		ssize_t rest;
 		switch(first->type) {
@@ -389,9 +390,11 @@ void nbd_read_ready(CLIENT* client) {
 		}
 		first->len -= rest;
 	}
-	if(first->len == 0 && first->cb != NULL) {
-		first->cb(client, first->userdata);
-		priv->in = g_list_delete_link(priv->in, priv->in);
+	if(first->len == 0) {
+		if(first->cb != NULL) {
+			first->cb(client, first->userdata);
+		}
+		priv->in = g_list_delete_link(priv->in, elem);
 		g_free(first);
 	}
 	if(priv->out != NULL) {
@@ -409,7 +412,8 @@ void nbd_write_ready(CLIENT* client) {
 		 * Return to the main loop, hope that it will still show up. */
 		return;
 	}
-	nbd_queue* first = (nbd_queue*)priv->out->data;
+	GList* elem = priv->out;
+	nbd_queue* first = (nbd_queue*)elem->data;
 	if(first->len > 0) {
 		ssize_t rest;
 		switch(first->type) {
@@ -428,9 +432,11 @@ void nbd_write_ready(CLIENT* client) {
 		}
 		first->len -= rest;
 	}
-	if(first->len == 0 && first->cb != NULL) {
-		first->cb(client, first->userdata);
-		priv->out = g_list_delete_link(priv->out, priv->out);
+	if(first->len == 0) {
+		if(first->cb != NULL) {
+			first->cb(client, first->userdata);
+		}
+		priv->out = g_list_delete_link(priv->out, elem);
 		g_free(first);
 	}
 	if(priv->out != NULL) {
