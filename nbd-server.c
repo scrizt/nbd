@@ -1493,8 +1493,8 @@ static void handle_write(CLIENT* client, struct nbd_request* request, struct nbd
 static void handle_flush(CLIENT* client, struct nbd_request* request, struct nbd_reply reply) {
 	void* data = g_malloc(sizeof(reply));
 	memcpy(data, &reply, sizeof(reply));
-	/* TODO: when doing multithreading, lock the whole system and make sure
-	 * the flush isn't done until all outstanding writes have finished. */
+	/* TODO: when doing multithreading, make sure the flush isn't done
+	 * until all outstanding writes have finished. */
 	client->backend->flush();
 	nbd_send_data(client, data, sizeof(struct nbd_reply), false, cleanup_reply, data);
 }
