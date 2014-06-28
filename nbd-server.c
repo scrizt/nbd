@@ -1502,7 +1502,9 @@ static void handle_flush(CLIENT* client, struct nbd_request* request, struct nbd
 static void handle_read(CLIENT* client, struct nbd_request* request, struct nbd_reply reply) {
 	void* data = g_malloc(sizeof(reply));
 	memcpy(data, &reply, sizeof(reply));
-	nbd_copy_out_data(client, (off_t)request->from, (size_t)request->len, false, send_reply_header_callback, data);
+	/* TODO: when doing multithreading, make sure the next two are done atomicallyl */
+	send_reply_header_callback(client, data);
+	nbd_copy_out_data(client, (off_t)request->from, (size_t)request->len, false, NULL, data);
 }
 
 static void handle_trim(CLIENT* client, struct nbd_request* request, struct nbd_reply reply) {
