@@ -397,7 +397,7 @@ void nbd_read_ready(CLIENT* client) {
 		priv->in = g_list_delete_link(priv->in, elem);
 		g_free(first);
 	}
-	if(priv->out != NULL) {
+	if(priv->in != NULL) {
 		client->want_read = true;
 	} else {
 		client->want_read = false;
