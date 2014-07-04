@@ -1583,7 +1583,7 @@ void expect_header(CLIENT* client, void* data) {
 
 	case NBD_CMD_FLUSH:
 		DEBUG("fl: ");
-		handle_flush(client, request, reply)
+		handle_flush(client, request, reply);
 		DEBUG("OK!\n");
 		return;
 
