@@ -377,9 +377,11 @@ void nbd_read_ready(CLIENT* client) {
 		switch(first->type) {
 			case BUF:
 				rest = client->backend->copy_to_buffer(client->backend, client->net, first->u.buf, first->len);
+				first->u.buf += rest;
 				break;
 			case NOBUF:
 				rest = client->backend->copy_to_file(client->backend, client->net, first->u.offset, first->len);
+				first->u.offset += rest;
 				break;
 			default:
 				/* TODO: error handling */
@@ -419,9 +421,11 @@ void nbd_write_ready(CLIENT* client) {
 		switch(first->type) {
 			case BUF:
 				rest = client->backend->copy_from_buffer(client->backend, client->net, first->u.buf, first->len);
+				first->u.buf += rest;
 				break;
 			case NOBUF:
 				rest = client->backend->copy_from_file(client->backend, client->net, first->u.offset, first->len);
+				first->u.offset += rest;
 				break;
 			default:
 				/* TODO: error handling */
