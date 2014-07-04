@@ -57,9 +57,14 @@ static ssize_t dumb_copy_from_file(NBD_BACKEND* be, int socket, off_t offset, si
 	return tlen;
 }
 
+static int dumb_flush(NBD_BACKEND* be) {
+	return fsync(be->cur_file);
+}
+
 void nbd_dumb_init(NBD_BACKEND* be, SERVER* srv G_GNUC_UNUSED) {
 	be->copy_to_file = dumb_copy_to_file;
 	be->copy_from_file = dumb_copy_from_file;
 	be->copy_to_buffer = dumb_copy_to_buffer;
 	be->copy_from_buffer = dumb_copy_from_buffer;
+	be->flush = dumb_flush;
 }

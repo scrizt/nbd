@@ -1495,8 +1495,8 @@ static void handle_flush(CLIENT* client, struct nbd_request* request, struct nbd
 	memcpy(data, &reply, sizeof(reply));
 	/* TODO: when doing multithreading, make sure the flush isn't done
 	 * until all outstanding writes have finished. */
-	client->backend->flush();
-	nbd_send_data(client, data, sizeof(struct nbd_reply), false, cleanup_reply, data);
+	client->backend->flush(client->backend);
+	send_reply_header(client, data);
 }
 
 static void handle_read(CLIENT* client, struct nbd_request* request, struct nbd_reply reply) {

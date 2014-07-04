@@ -65,6 +65,12 @@ typedef ssize_t(*nbd_iofunc)(NBD_BACKEND* be, int socket, off_t offset, size_t l
   * pointers)
   */
 typedef bool(*nbd_initfunc)(NBD_BACKEND* be, SERVER* srv);
+/**
+  * A function to flush outstanding requests. Should make sure
+  * everything pending to be written to cur_file (if in use) is actually
+  * written out; can return nonzero to report failure.
+  */
+typedef int(*nbd_flushfunc)(NBD_BACKEND* be);
 
 typedef struct _backend_template {
 	nbd_initfunc init;	   /**< initializer. */
@@ -94,7 +100,7 @@ struct _nbd_backend {
 	nbd_buffunc copy_from_buffer; /**< function to copy from a memory
 					buffer to a socket */
 	nbd_iofunc trim;	   /**< function to trim data in the backend */
-	void(*flush)();		   /**< called when the backend storage should
+	nbd_flushfunc flush;	   /**< called when the backend storage should
 					be flushed. */
 };
 
