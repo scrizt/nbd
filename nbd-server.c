@@ -1541,7 +1541,7 @@ void expect_header(CLIENT* client, void* data) {
 
 	DEBUG("%s from %llu (%llu) len %u, ", getcommandname(command),
 			(unsigned long long)request->from,
-			(unsigned long long)request->from / 512, len);
+			(unsigned long long)request->from / 512, request->len);
 
 	if (request->magic != htonl(NBD_REQUEST_MAGIC))
 		err("Not enough magic.");
