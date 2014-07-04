@@ -1518,13 +1518,6 @@ static void handle_trim(CLIENT* client, struct nbd_request* request, struct nbd_
 	nbd_send_data(client, NULL, 0, false, send_reply_header, data);
 }
 
-/** sending macro. */
-#define SEND(net,reply) { writeit( net, &reply, sizeof( reply )); \
-	if (be->client->transactionlogfd != -1) \
-		writeit(be->client->transactionlogfd, &reply, sizeof(reply)); }
-/** error macro. */
-#define ERROR(client,reply,errcode) { reply.error = htonl(errcode); SEND(client->net,reply); reply.error = 0; }
-
 void expect_header(CLIENT* client, void* data) {
 	struct nbd_request *request;
 	struct nbd_reply reply;
@@ -1585,66 +1578,18 @@ void expect_header(CLIENT* client, void* data) {
 	case NBD_CMD_WRITE:
 		DEBUG("wr: ");
 		handle_write(client, request, reply);
-		/*while(len > 0) {
-			readit(client->net, buf, currlen);
-			DEBUG("buf->exp, ");
-			if ((client->server->flags & F_READONLY) ||
-			    (client->server->flags & F_AUTOREADONLY)) {
-				DEBUG("[WRITE to READONLY!]");
-				ERROR(client, reply, EPERM);
-				consume(client->net, buf, len-currlen, BUFSIZE);
-				continue;
-			}
-			if (expwrite(request.from, buf, currlen, client,
-				     request.type & NBD_CMD_FLAG_FUA)) {
-				DEBUG("Write failed: %m" );
-				ERROR(client, reply, errno);
-				consume(client->net, buf, len-currlen, BUFSIZE);
-				continue;
-			}
-			len -= currlen;
-			request.from += currlen;
-			currlen = (len < BUFSIZE) ? len : BUFSIZE;
-		}
-		SEND(client->net, reply);*/
 		DEBUG("OK!\n");
 		return;
 
 	case NBD_CMD_FLUSH:
 		DEBUG("fl: ");
 		handle_flush(client, request, reply)
-		/*if (expflush(client)) {
-			DEBUG("Flush failed: %m");
-			ERROR(client, reply, errno);
-			return;
-		}
-		SEND(client->net, reply);*/
 		DEBUG("OK!\n");
 		return;
 
 	case NBD_CMD_READ:
 		DEBUG("rd: ");
 		handle_read(client, request, reply);
-		/*if (client->transactionlogfd != -1)
-			writeit(client->transactionlogfd, &reply, sizeof(reply));
-		writeit(client->net, &reply, sizeof(reply));
-		p = buf;
-		writelen = currlen;
-		while(len > 0) {
-			if (expread(request.from, p, currlen, client)) {
-				DEBUG("Read failed: %m");
-				ERROR(client, reply, errno);
-				return;
-			}
-			
-			DEBUG("buf->net, ");
-			writeit(client->net, buf, writelen);
-			len -= currlen;
-			request.from += currlen;
-			currlen = (len < BUFSIZE) ? len : BUFSIZE;
-			p = buf;
-			writelen = currlen;
-		}*/
 		DEBUG("OK!\n");
 		return;
 
@@ -1653,12 +1598,6 @@ void expect_header(CLIENT* client, void* data) {
 		 * so it is okay to do nothing.  */
 		DEBUG("tr: ");
 		handle_trim(client, request, reply);
-		/*if (exptrim(&request, client)) {
-			DEBUG("Trim failed: %m");
-			ERROR(client, reply, errno);
-			continue;
-		}
-		SEND(client->net, reply);*/
 		DEBUG("OK!\n");
 		return;
 
