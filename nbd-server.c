@@ -1473,7 +1473,7 @@ static void cleanup_reply(CLIENT* cl G_GNUC_UNUSED, void* userdata) {
 	g_free(userdata);
 }
 
-static void send_reply_header_callback(CLIENT* client, void* userdata) {
+static void send_reply_header(CLIENT* client, void* userdata) {
 	struct nbd_reply* reply = (struct nbd_reply*) userdata;
 
 	nbd_send_data(client, reply, sizeof(struct nbd_reply), false, cleanup_reply, userdata);
@@ -1487,7 +1487,7 @@ static void send_reply_header_callback(CLIENT* client, void* userdata) {
 static void handle_write(CLIENT* client, struct nbd_request* request, struct nbd_reply reply) {
 	void* data = g_malloc(sizeof(reply));
 	memcpy(data, &reply, sizeof(reply));
-	nbd_copy_in_data(client, (off_t)request->from, (size_t)request->len, send_reply_header_callback, data);
+	nbd_copy_in_data(client, (off_t)request->from, (size_t)request->len, send_reply_header, data);
 }
 
 static void handle_flush(CLIENT* client, struct nbd_request* request, struct nbd_reply reply) {
@@ -1503,7 +1503,7 @@ static void handle_read(CLIENT* client, struct nbd_request* request, struct nbd_
 	void* data = g_malloc(sizeof(reply));
 	memcpy(data, &reply, sizeof(reply));
 	/* TODO: when doing multithreading, make sure the next two are done atomicallyl */
-	send_reply_header_callback(client, data);
+	send_reply_header(client, data);
 	nbd_copy_out_data(client, (off_t)request->from, (size_t)request->len, false, NULL, data);
 }
 
@@ -1515,7 +1515,7 @@ static void handle_trim(CLIENT* client, struct nbd_request* request, struct nbd_
 	assert(client->backend->trim(client->backend, client->net, (off_t)request->from, (size_t) request->len) == request->len);
 	/* use send_reply_header_data so handling of sending the reply header is centralized */
 	/* TODO: maybe create a function or macro to do this? */
-	nbd_send_data(client, NULL, 0, false, send_reply_header_callback, data);
+	nbd_send_data(client, NULL, 0, false, send_reply_header, data);
 }
 
 /** sending macro. */
