@@ -1495,6 +1495,7 @@ static void handle_flush(CLIENT* client, struct nbd_request* request, struct nbd
 	memcpy(data, &reply, sizeof(reply));
 	/* TODO: when doing multithreading, make sure the flush isn't done
 	 * until all outstanding writes have finished. */
+	DEBUG("flushing, ");
 	client->backend->flush(client->backend);
 	send_reply_header(client, data);
 }
@@ -1578,19 +1579,19 @@ void expect_header(CLIENT* client, void* data) {
 	case NBD_CMD_WRITE:
 		DEBUG("wr: ");
 		handle_write(client, request, reply);
-		DEBUG("OK!\n");
+		DEBUG("OK!");
 		return;
 
 	case NBD_CMD_FLUSH:
 		DEBUG("fl: ");
 		handle_flush(client, request, reply);
-		DEBUG("OK!\n");
+		DEBUG("OK!");
 		return;
 
 	case NBD_CMD_READ:
 		DEBUG("rd: ");
 		handle_read(client, request, reply);
-		DEBUG("OK!\n");
+		DEBUG("OK!");
 		return;
 
 	case NBD_CMD_TRIM:
@@ -1598,7 +1599,7 @@ void expect_header(CLIENT* client, void* data) {
 		 * so it is okay to do nothing.  */
 		DEBUG("tr: ");
 		handle_trim(client, request, reply);
-		DEBUG("OK!\n");
+		DEBUG("OK!");
 		return;
 
 	default:
@@ -1631,18 +1632,24 @@ int mainloop(CLIENT *client) {
 		FD_ZERO(&eset);
 
 		FD_SET(client->net, &eset);
+		DEBUG("\n");
 		if(client->want_read) {
+			DEBUG("want read, ");
 			FD_SET(client->net, &rset);
 		}
 		if(client->want_write) {
+			DEBUG("want write, ");
 			FD_SET(client->net, &wset);
 		}
 
+		DEBUG("select, ");
 		select(client->net+1, &rset, &wset, &eset, NULL);
 		if(FD_ISSET(client->net, &rset)) {
+			DEBUG("read socket, ");
 			nbd_read_ready(client);
 		}
 		if(FD_ISSET(client->net, &wset)) {
+			DEBUG("write socket, ");
 			nbd_write_ready(client);
 		}
 		if(FD_ISSET(client->net, &eset)) {

@@ -315,6 +315,7 @@ nbd_privdata* get_priv(CLIENT* client) {
 /* more is only going to be used once we do multithreading, which is "not now" */
 /* XXX these four should be a macro or an inline function or something */
 void nbd_send_data(CLIENT* client, void* buf, size_t size, bool more G_GNUC_UNUSED, nbd_callback cb, void* userdata) {
+	DEBUG("enq buf o, ");
 	nbd_privdata* priv = get_priv(client);
 	nbd_queue* newitem = g_new0(nbd_queue, 1);
 	newitem->type = BUF;
@@ -327,6 +328,7 @@ void nbd_send_data(CLIENT* client, void* buf, size_t size, bool more G_GNUC_UNUS
 }
 
 void nbd_copy_out_data(CLIENT* client, off_t offset, size_t len, bool more, nbd_callback cb, void* userdata) {
+	DEBUG("enq nobuf o, ");
 	nbd_privdata* priv = get_priv(client);
 	nbd_queue* newitem = g_new0(nbd_queue, 1);
 	newitem->type = NOBUF;
@@ -339,6 +341,7 @@ void nbd_copy_out_data(CLIENT* client, off_t offset, size_t len, bool more, nbd_
 }
 
 void nbd_read_data(CLIENT* client, void* buf, size_t size, nbd_callback cb, void* userdata) {
+	DEBUG("enq buf i, ");
 	nbd_privdata* priv = get_priv(client);
 	nbd_queue* newitem = g_new0(nbd_queue, 1);
 	newitem->type = BUF;
@@ -351,6 +354,7 @@ void nbd_read_data(CLIENT* client, void* buf, size_t size, nbd_callback cb, void
 }
 
 void nbd_copy_in_data(CLIENT* client, off_t offset, size_t len, nbd_callback cb, void* userdata) {
+	DEBUG("enq nobuf i, ");
 	nbd_privdata* priv = get_priv(client);
 	nbd_queue* newitem = g_new0(nbd_queue, 1);
 	newitem->type = NOBUF;
@@ -376,10 +380,12 @@ void nbd_read_ready(CLIENT* client) {
 		ssize_t rest;
 		switch(first->type) {
 			case BUF:
+				DEBUG("r buffer, ");
 				rest = client->backend->copy_to_buffer(client->backend, client->net, first->u.buf, first->len);
 				first->u.buf += rest;
 				break;
 			case NOBUF:
+				DEBUG("r no buffer, ");
 				rest = client->backend->copy_to_file(client->backend, client->net, first->u.offset, first->len);
 				first->u.offset += rest;
 				break;
@@ -394,6 +400,7 @@ void nbd_read_ready(CLIENT* client) {
 	}
 	if(first->len == 0) {
 		if(first->cb != NULL) {
+			DEBUG("r callback, ");
 			first->cb(client, first->userdata);
 		}
 		priv->in = g_list_delete_link(priv->in, elem);
@@ -420,10 +427,12 @@ void nbd_write_ready(CLIENT* client) {
 		ssize_t rest;
 		switch(first->type) {
 			case BUF:
+				DEBUG("w buffer, ");
 				rest = client->backend->copy_from_buffer(client->backend, client->net, first->u.buf, first->len);
 				first->u.buf += rest;
 				break;
 			case NOBUF:
+				DEBUG("w no buffer, ");
 				rest = client->backend->copy_from_file(client->backend, client->net, first->u.offset, first->len);
 				first->u.offset += rest;
 				break;
@@ -438,6 +447,7 @@ void nbd_write_ready(CLIENT* client) {
 	}
 	if(first->len == 0) {
 		if(first->cb != NULL) {
+			DEBUG("w callback, ");
 			first->cb(client, first->userdata);
 		}
 		priv->out = g_list_delete_link(priv->out, elem);

@@ -4,18 +4,25 @@
  **/
 #include <nbdsrv.h>
 #include <unistd.h>
+#include <stdio.h>
+#include <nbd-debug.h>
 
 static ssize_t dumb_copy_to_buffer(NBD_BACKEND* be G_GNUC_UNUSED, int socket, void* buf, size_t len) {
+	DEBUG("dumb fd %d to buf", socket);
 	return read(socket, buf, len);
+	DEBUG(", ");
 }
 
 static ssize_t dumb_copy_from_buffer(NBD_BACKEND* be G_GNUC_UNUSED, int socket, void* buf, size_t len) {
+	DEBUG("dumb fd %d from buf", socket);
 	return write(socket, buf, len);
+	DEBUG(", ");
 }
 
 static ssize_t dumb_copy_to_file(NBD_BACKEND* be, int socket, off_t offset, size_t len) {
 	uint8_t buf[len];
-	
+
+	DEBUG("dumb to file o%d, l%d (", offset, len);
 	ssize_t rlen = dumb_copy_to_buffer(be, socket, buf, len);
 	ssize_t tlen = rlen;
 	if(rlen < 0) {
@@ -30,7 +37,9 @@ static ssize_t dumb_copy_to_file(NBD_BACKEND* be, int socket, off_t offset, size
 			return wlen;
 		}
 		rlen -= wlen;
+		DEBUG("wrote %d, %d left, ", wlen, rlen);
 	} while(rlen > 0);
+	DEBUG(")");
 
 	return tlen;
 }
@@ -39,6 +48,7 @@ static ssize_t dumb_copy_from_file(NBD_BACKEND* be, int socket, off_t offset, si
 	uint8_t buf[len];
 
 	lseek(be->cur_file, offset, SEEK_SET);
+	DEBUG("dumb from file o%d, l%d (", offset, len);
 	ssize_t rlen = dumb_copy_to_buffer(be, be->cur_file, buf, len);
 	ssize_t tlen = rlen;
 	if(rlen < 0) {
@@ -52,6 +62,7 @@ static ssize_t dumb_copy_from_file(NBD_BACKEND* be, int socket, off_t offset, si
 			return wlen;
 		}
 		rlen -= wlen;
+		DEBUG("read %d, %d left, ", wlen, rlen);
 	} while(rlen > 0);
 
 	return tlen;
