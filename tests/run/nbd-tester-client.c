@@ -1259,7 +1259,11 @@ void handle_nonopt(char* opt, gchar** hostname, long int* p) {
 				g_critical("Could not parse port number: %s", strerror(errno));
 				exit(EXIT_FAILURE);
 			}
+			nonopt++;
 			break;
+		default:
+			g_critical("Too many non-option arguments");
+			exit(EXIT_FAILURE);
 	}
 }
 
