@@ -1734,6 +1734,10 @@ void setupexport(CLIENT* client) {
 		laststartoff = fi.startoff;
 		lastsize = size_autodetect(fi.fhandle);
 
+		if(!i) {
+			client->backend->cur_file = fi.fhandle;
+		}
+
 		/* If we created the file, it will be length zero */
 		if (!lastsize && cancreate) {
 			assert(!multifile);
@@ -1742,10 +1746,6 @@ void setupexport(CLIENT* client) {
 			}
 			lastsize = client->server->expected_size;
 			break; /* don't look for any more files */
-		}
-
-		if(!i) {
-			client->backend->cur_file = fi.fhandle;
 		}
 
 		if(!multifile || temporary)
