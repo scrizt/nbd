@@ -62,6 +62,7 @@
 #include <assert.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/un.h>
 #include <sys/stat.h>
 #include <sys/select.h>
 #include <sys/wait.h>
@@ -223,6 +224,7 @@ struct generic_conf {
         gchar *group;           /**< group we run running as      */
         gchar *modernaddr;      /**< address of the modern socket */
         gchar *modernport;      /**< port of the modern socket    */
+	gint b_unix;		/**< use unix socket              */
         gint flags;             /**< global flags                 */
 };
 
@@ -651,6 +653,7 @@ GArray* parse_cfile(gchar* f, struct generic_conf *const genconf, bool expect_ge
 		{ "port", 	FALSE, PARAM_STRING,	&(genconftmp.modernport), 0 },
 		{ "includedir", FALSE, PARAM_STRING,	&cfdir,                   0 },
 		{ "allowlist",  FALSE, PARAM_BOOL,	&(genconftmp.flags),      F_LIST },
+		{ "unix",	FALSE, PARAM_BOOL,	&(genconftmp.b_unix), 1},
 	};
 	PARAM* p=gp;
 	int p_size=sizeof(gp)/sizeof(PARAM);
@@ -2485,6 +2488,61 @@ out:
         return retval;
 }
 
+int open_unix(const gchar *const path, GError **const gerror) {
+	int e;
+        int retval = -1;
+	int sock;
+	struct sockaddr_un un_addr;
+	memset(&un_addr, 0, sizeof(un_addr));
+
+	un_addr.sun_family = AF_UNIX;
+	if (strnlen(path, sizeof(un_addr.sun_path)) == sizeof(un_addr.sun_path)) {
+		err_nonfatal("UNIX socket path too long");
+		return -1;
+	}
+
+	strncpy(un_addr.sun_path, path, sizeof(un_addr.sun_path) - 1);
+
+	if((sock = socket(AF_UNIX, SOCK_STREAM, 0))<0) {
+		g_set_error(gerror, NBDS_ERR, NBDS_ERR_SOCKET,
+			    "failed to open a modern socket: "
+			    "failed to create a socket: %s",
+			    strerror(errno));
+		goto out;
+	}
+
+	if (dosockopts(sock, gerror) == -1) {
+		g_prefix_error(gerror, "failed to open a modern socket: ");
+		goto out;
+	}
+
+	if(bind(sock, &un_addr, sizeof(un_addr))) {
+		g_set_error(gerror, NBDS_ERR, NBDS_ERR_BIND,
+			    "failed to open a modern socket: "
+			    "failed to bind an address to a socket: %s",
+			    strerror(errno));
+		goto out;
+	}
+
+	if(listen(sock, 10) <0) {
+		g_set_error(gerror, NBDS_ERR, NBDS_ERR_BIND,
+			    "failed to open a modern socket: "
+			    "failed to start listening on a socket: %s",
+			    strerror(errno));
+		goto out;
+	}
+	g_array_append_val(modernsocks, sock);
+
+        retval = 0;
+out:
+
+        if (retval == -1 && sock >= 0) {
+                close(sock);
+        }
+
+        return retval;
+}
+
 int open_modern(const gchar *const addr, const gchar *const port,
                 GError **const gerror) {
 	struct addrinfo hints;
@@ -2577,7 +2635,7 @@ out:
  * Connect our servers.
  **/
 void setup_servers(GArray *const servers, const gchar *const modernaddr,
-                   const gchar *const modernport) {
+                   const gchar *const modernport, gint b_unix) {
 	int i;
 	struct sigaction sa;
 	int want_modern=0;
@@ -2598,12 +2656,21 @@ void setup_servers(GArray *const servers, const gchar *const modernaddr,
 	}
 	if(want_modern) {
                 GError *gerror = NULL;
-                if (open_modern(modernaddr, modernport, &gerror) == -1) {
-                        msg(LOG_ERR, "failed to setup servers: %s",
-                            gerror->message);
-                        g_clear_error(&gerror);
-                        exit(EXIT_FAILURE);
-                }
+		if (b_unix) {
+			if (open_unix(modernaddr, &gerror) == -1) {
+	                        msg(LOG_ERR, "failed to setup servers: %s",
+	                            gerror->message);
+	                        g_clear_error(&gerror);
+	                        exit(EXIT_FAILURE);
+	                }
+		} else {
+	                if (open_modern(modernaddr, modernport, &gerror) == -1) {
+	                        msg(LOG_ERR, "failed to setup servers: %s",
+	                            gerror->message);
+	                        g_clear_error(&gerror);
+	                        exit(EXIT_FAILURE);
+	                }
+		}
 	}
 	children=g_hash_table_new_full(g_int_hash, g_int_equal, NULL, destroy_pid_t);
 
@@ -2810,7 +2877,7 @@ int main(int argc, char *argv[]) {
 	}
 	if (!dontfork)
 		daemonize(serve);
-	setup_servers(servers, genconf.modernaddr, genconf.modernport);
+	setup_servers(servers, genconf.modernaddr, genconf.modernport, genconf.b_unix);
 	dousers(genconf.user, genconf.group);
 
 	serveloop(servers);
