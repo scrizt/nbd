@@ -156,6 +156,7 @@ int dontfork = 0;
 GHashTable *children;
 char pidfname[256] = {0}; /**< name of our PID file */
 char pidftemplate[256]; /**< template to be used for the filename of the PID file */
+char unixsockname[256] = {0};
 char default_authname[] = SYSCONFDIR "/nbd-server/allow"; /**< default name of allow file */
 
 #define NEG_INIT	(1 << 0)
@@ -224,7 +225,7 @@ struct generic_conf {
         gchar *group;           /**< group we run running as      */
         gchar *modernaddr;      /**< address of the modern socket */
         gchar *modernport;      /**< port of the modern socket    */
-	gint b_unix;		/**< use unix socket              */
+	gchar *unixsocket;	/**< use unix socket              */
         gint flags;             /**< global flags                 */
 };
 
@@ -653,7 +654,7 @@ GArray* parse_cfile(gchar* f, struct generic_conf *const genconf, bool expect_ge
 		{ "port", 	FALSE, PARAM_STRING,	&(genconftmp.modernport), 0 },
 		{ "includedir", FALSE, PARAM_STRING,	&cfdir,                   0 },
 		{ "allowlist",  FALSE, PARAM_BOOL,	&(genconftmp.flags),      F_LIST },
-		{ "unix",	FALSE, PARAM_BOOL,	&(genconftmp.b_unix), 1},
+		{ "unixsocket",	FALSE, PARAM_STRING,	&(genconftmp.unixsocket), 0},
 	};
 	PARAM* p=gp;
 	int p_size=sizeof(gp)/sizeof(PARAM);
@@ -890,6 +891,7 @@ void killchild(gpointer key, gpointer value, gpointer user_data) {
 void sigterm_handler(int s) {
 	g_hash_table_foreach(children, killchild, NULL);
 	unlink(pidfname);
+	unlink(unixsockname);
 
 	exit(EXIT_SUCCESS);
 }
@@ -2524,6 +2526,8 @@ int open_unix(const gchar *const path, GError **const gerror) {
 		goto out;
 	}
 
+	strncpy(unixsockname, path, sizeof(unixsockname) - 1);
+
 	if(listen(sock, 10) <0) {
 		g_set_error(gerror, NBDS_ERR, NBDS_ERR_BIND,
 			    "failed to open a modern socket: "
@@ -2635,7 +2639,7 @@ out:
  * Connect our servers.
  **/
 void setup_servers(GArray *const servers, const gchar *const modernaddr,
-                   const gchar *const modernport, gint b_unix) {
+                   const gchar *const modernport, const gchar *const unixsocket) {
 	int i;
 	struct sigaction sa;
 	int want_modern=0;
@@ -2656,14 +2660,15 @@ void setup_servers(GArray *const servers, const gchar *const modernaddr,
 	}
 	if(want_modern) {
                 GError *gerror = NULL;
-		if (b_unix) {
-			if (open_unix(modernaddr, &gerror) == -1) {
+		if (unixsocket) {
+			if (open_unix(unixsocket, &gerror) == -1) {
 	                        msg(LOG_ERR, "failed to setup servers: %s",
 	                            gerror->message);
 	                        g_clear_error(&gerror);
 	                        exit(EXIT_FAILURE);
 	                }
-		} else {
+		}
+		if (modernaddr || modernport || !unixsocket) {
 	                if (open_modern(modernaddr, modernport, &gerror) == -1) {
 	                        msg(LOG_ERR, "failed to setup servers: %s",
 	                            gerror->message);
@@ -2686,6 +2691,13 @@ void setup_servers(GArray *const servers, const gchar *const modernaddr,
 	sigaddset(&sa.sa_mask, SIGCHLD);
 	sa.sa_flags = SA_RESTART;
 	if(sigaction(SIGTERM, &sa, NULL) == -1)
+		err("sigaction: %m");
+
+	sa.sa_handler = sigterm_handler;
+	sigemptyset(&sa.sa_mask);
+	sigaddset(&sa.sa_mask, SIGCHLD);
+	sa.sa_flags = SA_RESTART;
+	if(sigaction(SIGINT, &sa, NULL) == -1)
 		err("sigaction: %m");
 
 	sa.sa_handler = sighup_handler;
@@ -2877,7 +2889,7 @@ int main(int argc, char *argv[]) {
 	}
 	if (!dontfork)
 		daemonize(serve);
-	setup_servers(servers, genconf.modernaddr, genconf.modernport, genconf.b_unix);
+	setup_servers(servers, genconf.modernaddr, genconf.modernport, genconf.unixsocket);
 	dousers(genconf.user, genconf.group);
 
 	serveloop(servers);
