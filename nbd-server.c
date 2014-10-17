@@ -154,7 +154,7 @@ int dontfork = 0;
 #define F_OLDSTYLE 1	  /**< Allow oldstyle (port-based) exports */
 #define F_LIST 2	  /**< Allow clients to list the exports on a server */
 GHashTable *children;
-char pidfname[256]; /**< name of our PID file */
+char pidfname[256] = {0}; /**< name of our PID file */
 char pidftemplate[256]; /**< template to be used for the filename of the PID file */
 char default_authname[] = SYSCONFDIR "/nbd-server/allow"; /**< default name of allow file */
 
